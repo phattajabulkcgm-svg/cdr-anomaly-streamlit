@@ -248,15 +248,16 @@ if uploaded_file:
 
         filter_option = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
         if filter_option=="TRUE":
-            df_show = anomaly_results[anomaly_results['is_nomaly']]
+            df_show = anomaly_results[anomaly_results['is_nomaly']==True]
         elif filter_option=="FALSE":
-            df_show = anomaly_results[~anomaly_results['is_nomaly']]
+            df_show = anomaly_results[anomaly_results['is_nomaly']==False]
         else:
             df_show = anomaly_results.copy()
 
         # Highlight Top10 by abs diff
         df_show['diff_val'] = df_show['diff'].str.rstrip('%').astype(float).abs()
         df_top10 = df_show.sort_values('diff_val', ascending=False).head(10).drop(columns=['diff_val'])
+
         st.dataframe(df_top10)
 
         # Download Excel
