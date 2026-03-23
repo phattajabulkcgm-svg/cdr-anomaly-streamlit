@@ -1,6 +1,6 @@
 # =========================================
 # 📊 CDR Bulk Top10 Dashboard | CGV
-# Dark/Light Mode + SMS Theme + Fix All Rows Display
+# Dark/Light Mode + Filter anomalies (All/TRUE/FALSE)
 # =========================================
 
 import streamlit as st
@@ -10,13 +10,12 @@ from prophet import Prophet
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 import pytz
-import plotly.express as px
 
 # ==============================
 # Page config
 # ==============================
 st.set_page_config(
-    page_title="CDR Bulk Top10 Anomaly Dashboard | CGV",
+    page_title="CDR Bulk Top10 Dashboard | CGV",
     layout="wide"
 )
 
@@ -243,45 +242,29 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # Step 4: Filter & Highlight Top10 + Chart
+        # Step 4: Filter anomalies (All / TRUE / FALSE)
         # ==============================
         st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
 
         # แปลงตัวเลข column เป็น float
         anomaly_results['actual_volume'] = pd.to_numeric(anomaly_results['actual_volume'], errors='coerce').fillna(0)
         anomaly_results['predicted_max'] = pd.to_numeric(anomaly_results['predicted_max'], errors='coerce').fillna(0)
-        anomaly_results['predicted_min'] = pd.to_numeric(anomaly_results['predicted_min'], errors='coerce').fillna(0)
 
         is_nomaly_filter = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
-        df_show = anomaly_results.copy()
         if is_nomaly_filter=="TRUE":
-            df_show = df_show[df_show['is_nomaly']==True]
+            df_show = anomaly_results[anomaly_results['is_nomaly']==True]
         elif is_nomaly_filter=="FALSE":
-            df_show = df_show[df_show['is_nomaly']==False]
+            df_show = anomaly_results[anomaly_results['is_nomaly']==False]
+        else:
+            df_show = anomaly_results.copy()
 
-        # Top10 chart
-        df_show['diff_val'] = df_show['diff'].str.rstrip('%').astype(float).abs()
-        df_top10 = df_show.sort_values('diff_val', ascending=False).head(10)
+        st.dataframe(df_show, use_container_width=True)
 
-        st.dataframe(df_show)  # <-- แสดงทั้งหมดที่เลือก
-
-        if not df_top10.empty:
-            fig = px.bar(
-                df_top10,
-                x='data_masking',
-                y=['actual_volume','predicted_max'],
-                barmode='group',
-                color='level',
-                color_discrete_map={"High":"red","Low":"orange","Normal":"green"},
-                labels={'value':'Volume','data_masking':'Data Masking'},
-                title="Top10 Anomalies: Actual vs Predicted"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
+        # Download all filtered results
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
         file_name = f"cdr_bulk_top10_dashboard_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        df_top10.to_excel(output, index=False)
+        df_show.to_excel(output, index=False)
         output.seek(0)
-        st.download_button("📥 Download Top10 Excel", data=output, file_name=file_name)
+        st.download_button("📥 Download Filtered Excel", data=output, file_name=file_name)
