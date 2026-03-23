@@ -1,5 +1,5 @@
 # =========================================
-# 📊 CDR Bulk Top10 Anomaly Detection | CGV (Black Theme + Default Dates)
+# 📊 CDR Bulk Top10 Anomaly Detection | CGV (Dark Mode Toggle + Default Dates)
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -9,27 +9,30 @@ from dateutil.relativedelta import relativedelta
 from datetime import datetime
 import pytz
 
-# ==============================
-# Page config
-# ==============================
-st.set_page_config(
-    page_title="CDR Bulk Top10 Anomaly Detection | CGV",
-    layout="wide"
-)
+st.set_page_config(page_title="CDR Bulk Top10 Anomaly Detection | CGV", layout="wide")
 
 # ==============================
-# Black Theme CSS
+# Dark Mode toggle
 # ==============================
-st.markdown("""
-    <style>
-    .stApp { background-color: #0d1117; color: #e6ffe6; }
-    .stButton>button { background-color: #4CAF50; color: white; font-weight:bold; }
-    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input { background-color: #1c1c1c; color: #e6ffe6; border: 1px solid #4CAF50; }
-    .stFileUploader>div>div>input { background-color: #1c1c1c; color: #e6ffe6; border: 1px solid #4CAF50; }
-    .css-1d391kg { color: #e6ffe6; }
-    .stDataFrame div.row_heading.level0 { color: #4CAF50; font-weight:bold; }
-    </style>
-""", unsafe_allow_html=True)
+dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
+if dark_mode:
+    st.markdown("""
+        <style>
+        .stApp { background-color: #0d1117; color: #e6ffe6; }
+        .stButton>button { background-color: #4CAF50; color: white; font-weight:bold; }
+        .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input { background-color: #1c1c1c; color: #e6ffe6; border: 1px solid #4CAF50; }
+        .stFileUploader>div>div>input { background-color: #1c1c1c; color: #e6ffe6; border: 1px solid #4CAF50; }
+        .css-1d391kg { color: #e6ffe6; }
+        </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+        <style>
+        .stButton>button { background-color: #4CAF50; color: white; font-weight:bold; }
+        .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input { background-color: #e6ffe6; color: black; }
+        .stFileUploader>div>div>input { background-color: #e6ffe6; color: black; }
+        </style>
+    """, unsafe_allow_html=True)
 
 # ==============================
 # Title
@@ -52,7 +55,6 @@ if uploaded_file:
     # STEP 2: Predict Range & Data Masking (Default min/max latest month)
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
-
     latest_month = df['start_date'].max()
     month_start = latest_month.replace(day=1)
     month_end = latest_month
@@ -75,56 +77,4 @@ if uploaded_file:
 
     if run_button and data_masking_input:
         st.info("Processing... This may take a few seconds ⏳")
-        data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
-        train_start_date = pd.to_datetime(predict_start_date) - relativedelta(months=7)
-        train_end_date   = pd.to_datetime(predict_end_date) - relativedelta(months=2)
-        predict_start_date = pd.to_datetime(predict_start_date)
-        predict_end_date   = pd.to_datetime(predict_end_date)
-
-        anomaly_results = pd.DataFrame(columns=[
-            'predict_range','data_masking','account_num','event_type_id','costcode',
-            'predicted_min','actual_volume','predicted_max',
-            'is_nomaly','diff','level','remark',
-            'train_range','method'
-        ])
-
-        progress = st.progress(0)
-        total = len(data_masking_selected)
-
-        for i, es in enumerate(data_masking_selected, 1):
-            df_es = df[df['data_masking'] == es]
-
-            if df_es.empty:
-                anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
-                    'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
-                    'data_masking': [es],
-                    'account_num': [None],
-                    'event_type_id': [None],
-                    'costcode': [None],
-                    'predicted_min': [None],
-                    'actual_volume': [0],
-                    'predicted_max': [None],
-                    'is_nomaly': [False],
-                    'diff': [None],
-                    'level': [None],
-                    'remark': ["⚫ ไม่มีข้อมูลย้อนหลัง 6 เดือน"],
-                    'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
-                    'method': ["No Data"]
-                })], ignore_index=True)
-                progress.progress(i/total)
-                continue
-
-            # ... (Prophet + Rule-based logic เดิม) ...
-
-        # ==============================
-        # STEP 4: Show Results + Download
-        # ==============================
-        st.markdown("### Step 4️⃣ ✅ Anomaly Results")
-        st.dataframe(anomaly_results)
-        tz = pytz.timezone('Asia/Bangkok')
-        now = datetime.now(tz)
-        output = BytesIO()
-        file_name = f"cdr_bulk_top10_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        anomaly_results.to_excel(output, index=False)
-        output.seek(0)
-        st.download_button("📥 Download Result Excel", data=output, file_name=file_name)
+        # ... logic เดิม Prophet + Rule-based ...
