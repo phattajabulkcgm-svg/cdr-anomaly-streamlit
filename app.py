@@ -1,6 +1,8 @@
 # =========================================
-# 📊 CDR Bulk Top10 Anomaly Detection | CGV (Dark Mode Toggle + Default Dates)
+# 📊 CDR Bulk Top10 Anomaly Detection | CGV
+# Dark Mode Toggle + Step 2 default min/max
 # =========================================
+
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -9,12 +11,15 @@ from dateutil.relativedelta import relativedelta
 from datetime import datetime
 import pytz
 
+# ==============================
+# Page config
+# ==============================
 st.set_page_config(page_title="CDR Bulk Top10 Anomaly Detection | CGV", layout="wide")
 
 # ==============================
 # Dark Mode toggle
 # ==============================
-dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
+dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=True)
 if dark_mode:
     st.markdown("""
         <style>
@@ -55,16 +60,27 @@ if uploaded_file:
     # STEP 2: Predict Range & Data Masking (Default min/max latest month)
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
-    latest_month = df['start_date'].max()
-    month_start = latest_month.replace(day=1)
-    month_end = latest_month
+
+    # หาเดือนล่าสุด
+    latest_date = df['start_date'].max()
+    latest_month = latest_date.month
+    latest_year = latest_date.year
+
+    # กรองเฉพาะเดือนล่าสุด
+    df_latest_month = df[
+        (df['start_date'].dt.year == latest_year) &
+        (df['start_date'].dt.month == latest_month)
+    ]
+
+    month_min = df_latest_month['start_date'].min().date()
+    month_max = df_latest_month['start_date'].max().date()
 
     with st.container():
         col1, col2 = st.columns(2)
         with col1:
-            predict_start_date = st.date_input("📅 Predict Start Date", value=month_start)
+            predict_start_date = st.date_input("📅 Predict Start Date", value=month_min)
         with col2:
-            predict_end_date = st.date_input("📅 Predict End Date", value=month_end)
+            predict_end_date = st.date_input("📅 Predict End Date", value=month_max)
 
         data_masking_input = st.text_area(
             "💠 Data Masking (comma-separated, e.g. A1, A100, ...)", height=150
@@ -77,4 +93,167 @@ if uploaded_file:
 
     if run_button and data_masking_input:
         st.info("Processing... This may take a few seconds ⏳")
-        # ... logic เดิม Prophet + Rule-based ...
+
+        data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
+        train_start_date = pd.to_datetime(predict_start_date) - relativedelta(months=7)
+        train_end_date   = pd.to_datetime(predict_end_date) - relativedelta(months=2)
+        predict_start_date = pd.to_datetime(predict_start_date)
+        predict_end_date   = pd.to_datetime(predict_end_date)
+
+        anomaly_results = pd.DataFrame(columns=[
+            'predict_range','data_masking','account_num','event_type_id','costcode',
+            'predicted_min','actual_volume','predicted_max',
+            'is_nomaly','diff','level','remark',
+            'train_range','method'
+        ])
+
+        progress = st.progress(0)
+        total = len(data_masking_selected)
+
+        for i, es in enumerate(data_masking_selected, 1):
+            df_es = df[df['data_masking'] == es]
+
+            if df_es.empty:
+                anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                    'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
+                    'data_masking': [es],
+                    'account_num': [None],
+                    'event_type_id': [None],
+                    'costcode': [None],
+                    'predicted_min': [None],
+                    'actual_volume': [0],
+                    'predicted_max': [None],
+                    'is_nomaly': [False],
+                    'diff': [None],
+                    'level': [None],
+                    'remark': ["⚫ ไม่มีข้อมูลย้อนหลัง 6 เดือน"],
+                    'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
+                    'method': ["No Data"]
+                })], ignore_index=True)
+                progress.progress(i/total)
+                continue
+
+            account_num = df_es['account_num'].dropna().unique()[0] if 'account_num' in df_es.columns else None
+            event_type_id = df_es['event_type_id'].dropna().unique()[0] if 'event_type_id' in df_es.columns else None
+            costcode = df_es['costcode'].dropna().unique()[0] if 'costcode' in df_es.columns else None
+
+            actual_volume = df_es[
+                (df_es['start_date'] >= predict_start_date) &
+                (df_es['start_date'] <= predict_end_date)
+            ]['volume_monthly'].sum()
+
+            prev_volume = df_es[
+                (df_es['start_date'] >= predict_start_date - relativedelta(months=1)) &
+                (df_es['start_date'] <= predict_end_date - relativedelta(months=1))
+            ]['volume_monthly'].sum()
+
+            prev_volume = prev_volume if prev_volume != 0 else None
+
+            # RULE 1: New Usage
+            if (prev_volume is None or prev_volume == 0) and actual_volume > 0:
+                anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                    'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
+                    'data_masking': [es],
+                    'account_num': [account_num],
+                    'event_type_id': [event_type_id],
+                    'costcode': [costcode],
+                    'predicted_min': [None],
+                    'actual_volume': [actual_volume],
+                    'predicted_max': [None],
+                    'is_nomaly': [False],
+                    'diff': ["100%"],
+                    'level': ["High"],
+                    'remark': ["❗ Usage ใหม่ (เดือนก่อน=0)"],
+                    'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
+                    'method': ["Rule-based"]
+                })], ignore_index=True)
+                progress.progress(i/total)
+                continue
+
+            # train model
+            df_train = df_es[
+                (df_es['start_date'] >= train_start_date) &
+                (df_es['start_date'] <= train_end_date)
+            ].groupby('start_date')['volume_monthly'].sum().reset_index()
+            df_train.rename(columns={'start_date': 'ds', 'volume_monthly': 'y'}, inplace=True)
+
+            if df_train.shape[0] >= 6:
+                model = Prophet()
+                model.fit(df_train)
+                forecast = model.predict(pd.DataFrame({'ds':[predict_start_date]}))
+                predicted_min = max(0, forecast['yhat_lower'].values[0])
+                predicted_max = max(predicted_min, forecast['yhat_upper'].values[0])
+                method = "Prophet"
+            else:
+                median_val = df_train['y'].median() if not df_train.empty else 1
+                predicted_min = 0
+                predicted_max = median_val
+                method = "Median fallback"
+
+            # RULE 2: Drop to Zero
+            if prev_volume is not None and prev_volume > 0 and actual_volume == 0:
+                anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                    'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
+                    'data_masking': [es],
+                    'account_num': [account_num],
+                    'event_type_id': [event_type_id],
+                    'costcode': [costcode],
+                    'predicted_min': [predicted_min],
+                    'actual_volume': [0],
+                    'predicted_max': [predicted_max],
+                    'is_nomaly': [False],
+                    'diff': ["-100%"],
+                    'level': ["Low"],
+                    'remark': ["❗ Usage หายไปจากเดือนก่อน"],
+                    'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
+                    'method': [method]
+                })], ignore_index=True)
+                progress.progress(i/total)
+                continue
+
+            # anomaly logic
+            diff = round((actual_volume - predicted_max) / predicted_max * 100,2) if predicted_max else None
+            if diff is None:
+                is_nomaly = False; level=None; remark=""
+            elif diff==0:
+                is_nomaly=True; level="Normal"; remark=""
+            else:
+                if diff>50:
+                    level="High"; remark="❗ เพิ่มขึ้นผิดปกติ"
+                elif diff<-50:
+                    level="Low"; remark="❗ ลดลงผิดปกติ"
+                else:
+                    level="Normal"; remark=""
+                is_nomaly = abs(diff) > 5
+
+            anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                'predict_range':[f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
+                'data_masking':[es],
+                'account_num':[account_num],
+                'event_type_id':[event_type_id],
+                'costcode':[costcode],
+                'predicted_min':[predicted_min],
+                'actual_volume':[actual_volume],
+                'predicted_max':[predicted_max],
+                'is_nomaly':[is_nomaly],
+                'diff':[f"{diff}%" if diff is not None else None],
+                'level':[level],
+                'remark':[remark],
+                'train_range':[f"{train_start_date.date()} ถึง {train_end_date.date()}"],
+                'method':[method]
+            })], ignore_index=True)
+            progress.progress(i/total)
+
+        # ==============================
+        # STEP 4: Show Results + Download
+        # ==============================
+        st.markdown("### Step 4️⃣ ✅ Anomaly Results")
+        st.dataframe(anomaly_results)
+
+        tz = pytz.timezone('Asia/Bangkok')
+        now = datetime.now(tz)
+        output = BytesIO()
+        file_name = f"cdr_bulk_top10_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        anomaly_results.to_excel(output, index=False)
+        output.seek(0)
+        st.download_button("📥 Download Result Excel", data=output, file_name=file_name)
