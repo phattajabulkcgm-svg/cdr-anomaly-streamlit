@@ -1,6 +1,6 @@
 # =========================================
 # 📊 CDR Bulk Top10 Anomaly Dashboard | CGV
-# Highlight Top10 + Filter + Chart + Dark Mode
+# Light Mode Default + Optional Dark Mode
 # =========================================
 
 import streamlit as st
@@ -15,12 +15,15 @@ import plotly.express as px
 # ==============================
 # Page config
 # ==============================
-st.set_page_config(page_title="CDR Bulk Top10 Anomaly Dashboard | CGV", layout="wide")
+st.set_page_config(
+    page_title="CDR Bulk Top10 Anomaly Dashboard | CGV",
+    layout="wide"
+)
 
 # ==============================
-# Dark Mode toggle
+# Dark Mode toggle (default Light)
 # ==============================
-dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=True)
+dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
 if dark_mode:
     st.markdown("""
         <style>
@@ -34,9 +37,10 @@ if dark_mode:
 else:
     st.markdown("""
         <style>
+        .stApp { background-color: #ffffff; color: black; }
         .stButton>button { background-color: #4CAF50; color: white; font-weight:bold; }
-        .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input { background-color: #e6ffe6; color: black; }
-        .stFileUploader>div>div>input { background-color: #e6ffe6; color: black; }
+        .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input { background-color: #e6ffe6; color: black; border: 1px solid #4CAF50; }
+        .stFileUploader>div>div>input { background-color: #e6ffe6; color: black; border: 1px solid #4CAF50; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -47,7 +51,7 @@ st.markdown("<h1 style='text-align: center; color: #4CAF50;'>📊 CDR Bulk Top10
 st.markdown("---")
 
 # ==============================
-# STEP 1: Upload Excel
+# Step 1: Upload Excel
 # ==============================
 st.markdown("### Step 1️⃣ Upload Excel File")
 uploaded_file = st.file_uploader("📁 Upload Excel file (XLSX)", type=["xlsx"])
@@ -60,15 +64,12 @@ if uploaded_file:
         df['end_date'] = pd.to_datetime(df['end_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # STEP 2: Predict Range & Data Masking
+    # Step 2: Predict Range & Data Masking
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
     predict_start_default = df['start_date'].min().date()
-    if 'end_date' in df.columns:
-        predict_end_default = df['end_date'].max().date()
-    else:
-        predict_end_default = df['start_date'].max().date()
+    predict_end_default = df['end_date'].max().date() if 'end_date' in df.columns else df['start_date'].max().date()
 
     col1, col2 = st.columns(2)
     with col1:
@@ -81,12 +82,12 @@ if uploaded_file:
     )
 
     # ==============================
-    # STEP 3: Run anomaly detection
+    # Step 3: Run anomaly detection
     # ==============================
     run_button = st.button("🚀 Step 3️⃣ Run Anomaly Detection")
 
     if run_button and data_masking_input:
-        st.info("Processing... This may take a few seconds ⏳")
+        st.info("Processing... ⏳")
 
         data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
         train_start_date = pd.to_datetime(predict_start_date) - relativedelta(months=7)
@@ -239,11 +240,10 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # STEP 4: Filter & Highlight Top10 + Chart
+        # Step 4: Filter & Highlight Top10 + Chart
         # ==============================
         st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
 
-        # Filter TRUE/FALSE
         is_nomaly_filter = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
         if is_nomaly_filter=="TRUE":
             df_show = anomaly_results[anomaly_results['is_nomaly']==True]
@@ -252,13 +252,11 @@ if uploaded_file:
         else:
             df_show = anomaly_results.copy()
 
-        # Highlight Top10 by abs(diff)
         df_show['diff_val'] = anomaly_results['diff'].str.rstrip('%').astype(float).abs()
         df_top10 = df_show.sort_values('diff_val', ascending=False).head(10)
 
         st.dataframe(df_top10.drop(columns=['diff_val']))
 
-        # Chart
         if not df_top10.empty:
             fig = px.bar(
                 df_top10,
@@ -272,7 +270,6 @@ if uploaded_file:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-        # Download Excel
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
