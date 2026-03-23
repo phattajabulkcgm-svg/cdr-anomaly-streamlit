@@ -8,76 +8,86 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import pytz
 
+# ---------------------------
+# Page Config
+# ---------------------------
 st.set_page_config(page_title="CDR Anomaly Detection", layout="wide")
 st.title("📊 CDR Anomaly Detection Dashboard")
 
-# =========================================
-# 1️⃣ Upload & Predict Settings
-# =========================================
-with st.expander("🔧 Upload & Predict Settings", expanded=True):
-    uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
-    col1, col2 = st.columns(2)
-    with col1:
-        predict_start_date = st.date_input("Predict Start Date", datetime.today())
-    with col2:
-        predict_end_date = st.date_input("Predict End Date", datetime.today())
+# ==========================
+# STEP 1️⃣ Upload & Predict Settings
+# ==========================
+st.header("STEP 1: Upload File & Select Predict Period")
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+col1, col2 = st.columns(2)
+with col1:
+    predict_start_date = st.date_input("Predict Start Date", datetime.today())
+with col2:
+    predict_end_date = st.date_input("Predict End Date", datetime.today())
 
-    train_start_date = predict_start_date - relativedelta(months=7)
-    train_end_date   = predict_end_date   - relativedelta(months=2)
+train_start_date = predict_start_date - relativedelta(months=7)
+train_end_date   = predict_end_date   - relativedelta(months=2)
 
-# =========================================
-# 2️⃣ Dropdown Event + Trend Graph
-# =========================================
-with st.expander("📝 Select Event to View Trend", expanded=True):
-    if uploaded_file is not None:
-        df = pd.read_excel(uploaded_file)
-        df.columns = df.columns.str.strip().str.lower()
-        df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
+# ==========================
+# STEP 2️⃣ Load File & Prepare Data
+# ==========================
+if uploaded_file is not None:
+    df = pd.read_excel(uploaded_file)
+    df.columns = df.columns.str.strip().str.lower()
+    df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
-        # dropdown data_masking
-        data_masking_list = df['data_masking'].dropna().unique().tolist()
-        selected_event = st.selectbox("Select data_masking to view trend", data_masking_list)
+    st.success("✅ File loaded successfully!")
 
-        # filter by event
-        df_event = df[df['data_masking'] == selected_event].copy()
-        if 'costcode' in df_event.columns:
-            costcodes = df_event['costcode'].dropna().unique().tolist()
-            selected_costcode = st.selectbox("Select Costcode (optional)", [None]+costcodes)
-            if selected_costcode:
-                df_event = df_event[df_event['costcode'] == selected_costcode]
+# ==========================
+# STEP 3️⃣ Select Event / Costcode & Show Trend
+# ==========================
+if uploaded_file is not None:
+    st.header("STEP 2: Select Event to View Trend")
+    data_masking_list = df['data_masking'].dropna().unique().tolist()
+    selected_event = st.selectbox("Select data_masking to view trend", data_masking_list)
+
+    df_event = df[df['data_masking'] == selected_event].copy()
+
+    if 'costcode' in df_event.columns:
+        costcodes = df_event['costcode'].dropna().unique().tolist()
+        selected_costcode = st.selectbox("Select Costcode (optional)", [None]+costcodes)
+        if selected_costcode:
+            df_event = df_event[df_event['costcode'] == selected_costcode]
+    else:
+        selected_costcode = None
+
+    if not df_event.empty:
+        st.subheader(f"📈 Trend for {selected_event} {f'- {selected_costcode}' if selected_costcode else ''}")
+        df_trend = df_event.groupby('start_date')['volume_monthly'].sum().reset_index()
+        df_trend.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
+
+        if df_trend.shape[0] >= 2:
+            model = Prophet()
+            model.fit(df_trend)
+            future = model.make_future_dataframe(periods=1, freq='M')
+            forecast = model.predict(future)
+
+            st.line_chart(pd.DataFrame({
+                'Actual': df_trend.set_index('ds')['y'],
+                'Forecast': forecast.set_index('ds')['yhat'],
+                'Lower': forecast.set_index('ds')['yhat_lower'],
+                'Upper': forecast.set_index('ds')['yhat_upper']
+            }))
         else:
-            selected_costcode = None
+            st.warning("ข้อมูลไม่เพียงพอสำหรับการสร้าง trend (ต้องมีอย่างน้อย 2 เดือน)")
+    else:
+        st.warning("ไม่มีข้อมูลสำหรับ event/costcode ที่เลือก")
 
-        # plot trend
-        if not df_event.empty:
-            st.subheader(f"📈 Trend for {selected_event} {f'- {selected_costcode}' if selected_costcode else ''}")
-            df_trend = df_event.groupby('start_date')['volume_monthly'].sum().reset_index()
-            df_trend.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
+# ==========================
+# STEP 4️⃣ Run Anomaly Detection & Show Table + Export Excel
+# ==========================
+if uploaded_file is not None:
+    st.header("STEP 3: Anomaly Detection Results")
 
-            if df_trend.shape[0] >= 2:
-                model = Prophet()
-                model.fit(df_trend)
-                future = model.make_future_dataframe(periods=1, freq='M')
-                forecast = model.predict(future)
-
-                st.line_chart(pd.DataFrame({
-                    'Actual': df_trend.set_index('ds')['y'],
-                    'Forecast': forecast.set_index('ds')['yhat'],
-                    'Lower': forecast.set_index('ds')['yhat_lower'],
-                    'Upper': forecast.set_index('ds')['yhat_upper']
-                }))
-            else:
-                st.warning("ข้อมูลไม่เพียงพอสำหรับการสร้าง trend (ต้องมีอย่างน้อย 2 เดือน)")
-        else:
-            st.warning("ไม่มีข้อมูลสำหรับ event/costcode ที่เลือก")
-
-# =========================================
-# 3️⃣ Run Anomaly Detection
-# =========================================
-if uploaded_file is not None and st.button("Run Anomaly Detection ▶"):
+    # ใช้ default: all events in file
     user_input = st.text_area(
         "Enter data_masking:costcode list (comma-separated, costcode optional)",
-        "event1:eventcode1,event2"
+        ",".join([f"{x}:{y}" if pd.notna(y) else x for x,y in df[['data_masking','costcode']].drop_duplicates().values])
     )
 
     event_pairs = []
@@ -94,7 +104,7 @@ if uploaded_file is not None and st.button("Run Anomaly Detection ▶"):
         'results','diff','remark','train_range','method'
     ])
 
-    with st.spinner("⏳ กำลังประมวลผล..."):
+    with st.spinner("⏳ Calculating anomalies..."):
         for es, cc in event_pairs:
             df_es = df[df['data_masking'] == es]
             if cc:
@@ -194,30 +204,22 @@ if uploaded_file is not None and st.button("Run Anomaly Detection ▶"):
                 'method':[method_val]
             })], ignore_index=True)
 
-        # sort
-        anomaly_results['results_sort'] = anomaly_results['results'].apply(lambda x: 1 if x else 0)
-        anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
-        anomaly_results['results'] = anomaly_results['results'].apply(lambda x: 'TRUE' if x else 'FALSE')
+    # sort
+    anomaly_results['results_sort'] = anomaly_results['results'].apply(lambda x: 1 if x else 0)
+    anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
+    anomaly_results['results'] = anomaly_results['results'].apply(lambda x: 'TRUE' if x else 'FALSE')
 
-        # sidebar filter
-        st.sidebar.header("🔍 Filter Results")
-        filter_result = st.sidebar.multiselect("Results", ['TRUE','FALSE'], default=['TRUE','FALSE'])
-        filter_costcode = st.sidebar.text_input("Filter Costcode (optional)")
-        filtered_df = anomaly_results[anomaly_results['results'].isin(filter_result)]
-        if filter_costcode:
-            filtered_df = filtered_df[filtered_df['costcode'].str.contains(filter_costcode)]
+    # highlight function
+    def highlight_results(val):
+        color = 'lightgreen' if val == 'TRUE' else 'lightcoral'
+        return f'background-color: {color}'
 
-        # highlight
-        def highlight_results(val):
-            color = 'lightgreen' if val == 'TRUE' else 'lightcoral'
-            return f'background-color: {color}'
+    st.subheader("STEP 4: Anomaly Results Table")
+    st.dataframe(anomaly_results.style.applymap(highlight_results, subset=['results']))
 
-        st.subheader("Anomaly Results")
-        st.dataframe(filtered_df.style.applymap(highlight_results, subset=['results']))
-
-        # download
-        tz = pytz.timezone('Asia/Bangkok')
-        now = datetime.now(tz)
-        file_name = f"cdr_anomaly_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        filtered_df.to_excel(file_name,index=False)
-        st.download_button("💾 Download Excel", file_name, file_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # download excel
+    tz = pytz.timezone('Asia/Bangkok')
+    now = datetime.now(tz)
+    file_name = f"cdr_anomaly_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+    anomaly_results.to_excel(file_name,index=False)
+    st.download_button("💾 Download Excel", file_name, file_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
