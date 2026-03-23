@@ -1,5 +1,5 @@
 # =========================================
-# CDR Bulk Top10 Anomaly Detection | CGV (Pro UI + Dark Mode Toggle + Green Buttons)
+# 📊 CDR Bulk Top10 Anomaly Detection | CGV (STEP + Pro UI)
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -21,28 +21,21 @@ st.set_page_config(
 # Dark Mode toggle
 # ==============================
 dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
-
 if dark_mode:
     st.markdown("""
         <style>
         .stApp { background-color: #1f1f1f; color: white; }
-        .st-bf { color: white; }
-        .stButton>button { background-color: #4CAF50; color: white; }
-        .stTextInput>div>div>input { background-color: #eafbe7; color: black; }
-        .stTextArea>div>div>textarea { background-color: #eafbe7; color: black; }
-        .stDateInput>div>div>input { background-color: #eafbe7; color: black; }
+        .stButton>button { background-color: #4CAF50; color: white; font-weight:bold; }
+        .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input { background-color: #eafbe7; color: black; }
         .stFileUploader>div>div>input { background-color: #eafbe7; color: black; }
-        .css-1d391kg { color: white; }  /* sidebar headers */
+        .css-1d391kg { color: white; }
         </style>
     """, unsafe_allow_html=True)
 else:
     st.markdown("""
         <style>
-        .stApp { background-color: #FFFFFF; color: black; }
-        .stButton>button { background-color: #4CAF50; color: white; }
-        .stTextInput>div>div>input { background-color: #e6ffe6; color: black; }
-        .stTextArea>div>div>textarea { background-color: #e6ffe6; color: black; }
-        .stDateInput>div>div>input { background-color: #e6ffe6; color: black; }
+        .stButton>button { background-color: #4CAF50; color: white; font-weight:bold; }
+        .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stDateInput>div>div>input { background-color: #e6ffe6; color: black; }
         .stFileUploader>div>div>input { background-color: #e6ffe6; color: black; }
         </style>
     """, unsafe_allow_html=True)
@@ -54,8 +47,9 @@ st.markdown("<h1 style='text-align: center; color: #2F4F4F;'>📊 CDR Bulk Top10
 st.markdown("---")
 
 # ==============================
-# Upload Excel
+# STEP 1: Upload Excel
 # ==============================
+st.markdown("### Step 1️⃣ Upload Excel File")
 uploaded_file = st.file_uploader("📁 Upload Excel file (XLSX)", type=["xlsx"], label_visibility="visible")
 
 if uploaded_file:
@@ -64,27 +58,26 @@ if uploaded_file:
     df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # Input Parameters Card
+    # STEP 2: Input Parameters
     # ==============================
+    st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
     with st.container():
-        st.markdown("### 📝 Input Parameters")
         col1, col2 = st.columns(2)
         with col1:
             predict_start_date = st.date_input("📅 Predict Start Date")
         with col2:
             predict_end_date = st.date_input("📅 Predict End Date")
-
         data_masking_input = st.text_area(
-            "💠 Data Masking (comma-separated, e.g. A1, A100, ...)",
-            height=150
+            "💠 Data Masking (comma-separated, e.g. A1, A100, ...)", height=150
         )
 
-    run_button = st.button("🚀 Run Anomaly Detection")
+    # ==============================
+    # STEP 3: Run anomaly detection
+    # ==============================
+    run_button = st.button("🚀 Step 3️⃣ Run Anomaly Detection")
 
-    # ==============================
-    # Run anomaly
-    # ==============================
     if run_button and data_masking_input:
+        st.info("Processing... This may take a few seconds ⏳")
         data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
         train_start_date = pd.to_datetime(predict_start_date) - relativedelta(months=7)
         train_end_date   = pd.to_datetime(predict_end_date) - relativedelta(months=2)
@@ -261,21 +254,12 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # Sort: is_nomaly FALSE -> Remark ⚫🟡❗
+        # STEP 4: Show Results + Download
         # ==============================
-        def remark_priority(x):
-            if "❗" in str(x): return 2
-            elif "🟡" in str(x): return 1
-            elif "⚫" in str(x): return 0
-            else: return 3
-
-        anomaly_results['remark_sort'] = anomaly_results['remark'].apply(remark_priority)
+        anomaly_results['remark_sort'] = anomaly_results['remark'].apply(lambda x: 2 if "❗" in str(x) else (1 if "🟡" in str(x) else (0 if "⚫" in str(x) else 3)))
         anomaly_results = anomaly_results.sort_values(by=['is_nomaly','remark_sort'])
         anomaly_results = anomaly_results.drop(columns=['remark_sort'])
 
-        # ==============================
-        # Highlight remark
-        # ==============================
         def highlight_remark(row):
             if "❗" in str(row):
                 return 'color: red; font-weight:bold'
@@ -286,12 +270,9 @@ if uploaded_file:
             else:
                 return ''
 
-        st.markdown("### ✅ Anomaly Results (Sorted)")
+        st.markdown("### Step 4️⃣ ✅ Anomaly Results (Sorted)")
         st.dataframe(anomaly_results.style.applymap(highlight_remark, subset=['remark']))
 
-        # ==============================
-        # Download
-        # ==============================
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
