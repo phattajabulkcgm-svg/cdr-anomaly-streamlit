@@ -1,137 +1,228 @@
-
 import streamlit as st
 import pandas as pd
 from io import BytesIO
-from datetime import datetime
+from prophet import Prophet
 from dateutil.relativedelta import relativedelta
+from datetime import datetime
+import pytz
 
-try:
-    from prophet import Prophet
-    PROPHET = True
-except:
-    PROPHET = False
+st.set_page_config(page_title="CDR Anomaly Detection", layout="wide")
+st.title("📊 CDR Anomaly Detection (Prophet + Rule-based)")
 
-st.title("📊 CDR Anomaly Detection App")
+# -----------------------------
+# 1️⃣ Upload Excel
+# -----------------------------
+uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-st.write("Upload Excel file with columns: start_date, volume_monthly, data_masking, costcode")
+# -----------------------------
+# 2️⃣ Inputs
+# -----------------------------
+col1, col2 = st.columns(2)
+with col1:
+    predict_start_date = st.date_input("Predict Start Date")
+with col2:
+    predict_end_date = st.date_input("Predict End Date")
 
-file = st.file_uploader("Upload Excel", type=["xlsx"])
-predict_start = st.date_input("Predict start date")
-predict_end   = st.date_input("Predict end date")
-
-event_input = st.text_input(
-    "Data masking (comma separated, e.g. 12345:CC01,67890)"
+data_masking_input = st.text_input(
+    "Data Masking (comma separated, e.g. 12345:CC01,67890)"
 )
 
-run_btn = st.button("🚀 Run anomaly detection")
+# -----------------------------
+# 3️⃣ Run anomaly
+# -----------------------------
+if uploaded_file and data_masking_input:
+    try:
+        df = pd.read_excel(uploaded_file)
+        df.columns = df.columns.str.strip().str.lower()
+        df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
-def prepare_event_pairs(text):
-    pairs = []
-    for raw in text.split(","):
-        raw = raw.strip()
-        if not raw:
-            continue
-        if ":" in raw:
-            es, cc = raw.split(":", 1)
-            pairs.append((es.strip(), cc.strip()))
-        else:
-            pairs.append((raw, None))
-    return pairs
+        train_start_date = predict_start_date - relativedelta(months=7)
+        train_end_date   = predict_end_date   - relativedelta(months=2)
 
-if run_btn:
-    if not file:
-        st.error("Please upload an Excel file!")
-        st.stop()
+        # prepare event list
+        event_pairs = []
+        for pair in data_masking_input.split(','):
+            if ':' in pair:
+                es, cc = pair.split(':', 1)
+                event_pairs.append((es.strip(), cc.strip()))
+            else:
+                event_pairs.append((pair.strip(), None))
 
-    df = pd.read_excel(file)
-    df.columns = df.columns.str.lower().str.strip()
-    df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce")
+        anomaly_results = pd.DataFrame(columns=[
+            'predict_range','data_masking','account_num','event_type_id','costcode',
+            'predicted_min','actual_volume','predicted_max',
+            'is_nomaly','diff','level','remark',
+            'train_range','method'
+        ])
 
-    event_pairs = prepare_event_pairs(event_input)
-    results = []
+        for es, cc in event_pairs:
+            df_es = df[df['data_masking'] == es]
+            if cc:
+                df_es = df_es[df_es['costcode'] == cc]
 
-    months = pd.date_range(predict_start, predict_end, freq="MS")
+            if df_es.empty:
+                anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                    'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                    'data_masking': [es],
+                    'account_num': [None],
+                    'event_type_id': [None],
+                    'costcode': [cc],
+                    'predicted_min': [None],
+                    'actual_volume': [0],
+                    'predicted_max': [None],
+                    'is_nomaly': [False],
+                    'diff': [None],
+                    'level': [None],
+                    'remark': ["⚫ ไม่มีข้อมูลย้อนหลัง 6 เดือน"],
+                    'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                    'method': ["No Data"]
+                })], ignore_index=True)
+                continue
 
-    for es, cc in event_pairs:
-        d = df[df["data_masking"] == es]
-        if cc:
-            d = d[d["costcode"] == cc]
+            account_num = df_es['account_num'].dropna().unique()[0] if 'account_num' in df_es.columns else None
+            event_type_id = df_es['event_type_id'].dropna().unique()[0] if 'event_type_id' in df_es.columns else None
+            costcode = cc if cc else df_es['costcode'].dropna().unique()[0]
 
-        if d.empty:
-            results.append({
-                "data_masking": es,
-                "costcode": cc,
-                "remark": "No history"
-            })
-            continue
+            # actual / prev
+            actual_volume = df_es[
+                (df_es['start_date'] >= pd.to_datetime(predict_start_date)) &
+                (df_es['start_date'] <= pd.to_datetime(predict_end_date))
+            ]['volume_monthly'].sum()
 
-        actual = d[
-            (d["start_date"] >= pd.to_datetime(predict_start)) &
-            (d["start_date"] <= pd.to_datetime(predict_end))
-        ]["volume_monthly"].sum()
+            prev_volume = df_es[
+                (df_es['start_date'] >= pd.to_datetime(predict_start_date) - relativedelta(months=1)) &
+                (df_es['start_date'] <= pd.to_datetime(predict_end_date) - relativedelta(months=1))
+            ]['volume_monthly'].sum()
+            prev_volume = prev_volume if prev_volume != 0 else None
 
-        prev = d[
-            (d["start_date"] >= pd.to_datetime(predict_start) - relativedelta(months=1)) &
-            (d["start_date"] <= pd.to_datetime(predict_end) - relativedelta(months=1))
-        ]["volume_monthly"].sum()
+            # RULE 1: New Usage
+            if (prev_volume is None or prev_volume == 0) and actual_volume > 0:
+                anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                    'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                    'data_masking': [es],
+                    'account_num': [account_num],
+                    'event_type_id': [event_type_id],
+                    'costcode': [costcode],
+                    'predicted_min': [None],
+                    'actual_volume': [actual_volume],
+                    'predicted_max': [None],
+                    'is_nomaly': [False],
+                    'diff': ["100%"],
+                    'level': ["High"],
+                    'remark': ["❗ มี Usage ใหม่ (เดือนก่อน = 0)"],
+                    'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                    'method': ["Rule-based"]
+                })], ignore_index=True)
+                continue
 
-        prev = prev if prev != 0 else None
+            # train model
+            df_train = df_es[
+                (df_es['start_date'] >= train_start_date) & 
+                (df_es['start_date'] <= train_end_date)
+            ].groupby('start_date')['volume_monthly'].sum().reset_index()
+            df_train.rename(columns={'start_date': 'ds', 'volume_monthly': 'y'}, inplace=True)
 
-        if (prev is None or prev == 0) and actual > 0:
-            results.append({
-                "data_masking": es,
-                "costcode": cc,
-                "actual": actual,
-                "remark": "❗ NEW usage"
-            })
-            continue
+            if df_train.shape[0] >= 6:
+                model = Prophet()
+                model.fit(df_train)
+                forecast = model.predict(pd.DataFrame({'ds': [pd.to_datetime(predict_start_date)]}))
+                predicted_min = max(0, forecast['yhat_lower'].values[0])
+                predicted_max = max(predicted_min, forecast['yhat_upper'].values[0])
+                method = "Prophet"
+            else:
+                median_val = df_train['y'].median() if not df_train.empty else 1
+                predicted_min = 0
+                predicted_max = median_val
+                method = "Median fallback"
 
-        # Train
-        train_start = pd.to_datetime(predict_start) - relativedelta(months=7)
-        train_end   = pd.to_datetime(predict_end) - relativedelta(months=2)
+            if predicted_max < 1:
+                predicted_max = max(df_train['y'].median(), 1) if not df_train.empty else 1
+                predicted_min = 0
 
-        df_train = d[
-            (d["start_date"] >= train_start) &
-            (d["start_date"] <= train_end)
-        ].groupby("start_date", as_index=False)["volume_monthly"].sum()
+            # RULE 2: Drop to Zero
+            if prev_volume is not None and prev_volume > 0 and actual_volume == 0:
+                anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                    'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                    'data_masking': [es],
+                    'account_num': [account_num],
+                    'event_type_id': [event_type_id],
+                    'costcode': [costcode],
+                    'predicted_min': [predicted_min],
+                    'actual_volume': [0],
+                    'predicted_max': [predicted_max],
+                    'is_nomaly': [False],
+                    'diff': ["-100%"],
+                    'level': ["Low"],
+                    'remark': ["❗ Usage หายไปจากเดือนก่อน"],
+                    'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                    'method': [method]
+                })], ignore_index=True)
+                continue
 
-        if PROPHET and df_train.shape[0] >= 6:
-            try:
-                m = Prophet()
-                dfp = df_train.rename(columns={"start_date":"ds","volume_monthly":"y"})
-                m.fit(dfp)
+            # anomaly logic
+            diff = round((actual_volume - predicted_max) / predicted_max * 100, 2) if predicted_max else None
+            if diff is None:
+                is_nomaly = False
+                level = None
+                remark = ""
+            elif diff == 0:
+                is_nomaly = True
+                level = "Normal"
+                remark = ""
+            else:
+                if actual_volume < 100:
+                    is_nomaly = True
+                else:
+                    if actual_volume <= 10000:
+                        threshold = 80
+                    elif actual_volume <= 1_000_000:
+                        threshold = 50
+                    elif actual_volume <= 10_000_000:
+                        threshold = 30
+                    elif actual_volume <= 100_000_000:
+                        threshold = 10
+                    else:
+                        threshold = 5
+                    is_nomaly = abs(diff) < threshold
 
-                future = pd.DataFrame({"ds": months})
-                fc = m.predict(future)
+                if diff > 50:
+                    level = "High"
+                    remark = "❗ เพิ่มขึ้นผิดปกติ เทียบ 6 เดือนย้อนหลัง"
+                elif diff < -50:
+                    level = "Low"
+                    remark = "❗ ลดลงผิดปกติ เทียบ 6 เดือนย้อนหลัง"
+                else:
+                    level = "Normal"
+                    remark = ""
 
-                pred_max = fc["yhat_upper"].clip(lower=1).sum()
+            anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
+                'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                'data_masking': [es],
+                'account_num': [account_num],
+                'event_type_id': [event_type_id],
+                'costcode': [costcode],
+                'predicted_min': [predicted_min],
+                'actual_volume': [actual_volume],
+                'predicted_max': [predicted_max],
+                'is_nomaly': [is_nomaly],
+                'diff': [f"{diff}%" if diff is not None else None],
+                'level': [level],
+                'remark': [remark],
+                'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                'method': [method]
+            })], ignore_index=True)
 
-            except:
-                pred_max = df_train["volume_monthly"].median() * len(months)
-        else:
-            pred_max = df_train["volume_monthly"].median() * len(months)
+        # show table
+        st.dataframe(anomaly_results)
 
-        diff = round((actual - pred_max)/pred_max*100,2) if pred_max else None
+        # download
+        tz = pytz.timezone('Asia/Bangkok')
+        now = datetime.now(tz)
+        output = BytesIO()
+        file_name = f"cdr_anomaly_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        anomaly_results.to_excel(output, index=False)
+        output.seek(0)
+        st.download_button("📥 Download Result Excel", data=output, file_name=file_name)
 
-        results.append({
-            "data_masking": es,
-            "costcode": cc,
-            "actual": actual,
-            "predicted": pred_max,
-            "diff_percent": diff
-        })
-
-    df_res = pd.DataFrame(results)
-    st.dataframe(df_res)
-
-    # Download Excel
-    towrite = BytesIO()
-    df_res.to_excel(towrite, index=False)
-    towrite.seek(0)
-
-    st.download_button(
-        "📥 Download results",
-        towrite,
-        file_name="anomaly_results.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    except Exception as e:
+        st.error(f"Error: {e}")
