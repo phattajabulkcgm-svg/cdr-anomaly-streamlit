@@ -10,8 +10,7 @@ from dateutil.relativedelta import relativedelta
 import pytz
 
 st.set_page_config(page_title="CDR Anomaly Detection", layout="wide")
-
-st.title("📊 CDR Anomaly Detection with Prophet")
+st.title("📊 CDR Anomaly Detection")
 
 # =========================================
 # 1️⃣ Upload Excel
@@ -34,11 +33,12 @@ if uploaded_file is not None:
     with col2:
         predict_end_date = st.date_input("Predict End Date", datetime.today())
 
+    # train 6 เดือน + skip 1 เดือน
     train_start_date = predict_start_date - relativedelta(months=7)
     train_end_date   = predict_end_date   - relativedelta(months=2)
 
     # =========================================
-    # 3️⃣ Input events
+    # 3️⃣ Input event list
     # =========================================
     st.subheader("Data Masking & Costcode")
     user_input = st.text_area(
@@ -99,6 +99,7 @@ if uploaded_file is not None:
             ].groupby('start_date')['volume_monthly'].sum().reset_index()
             df_train.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
 
+            # train forecast
             if df_train.shape[0] >= 6:
                 model = Prophet()
                 model.fit(df_train)
@@ -163,6 +164,7 @@ if uploaded_file is not None:
                 'method':[method_val]
             })], ignore_index=True)
 
+        # sort by results & remark
         anomaly_results['results_sort'] = anomaly_results['results'].apply(lambda x: 1 if x else 0)
         anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
 
