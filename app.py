@@ -1,5 +1,5 @@
 # =========================================
-# 📊 CDR Bulk Top10 Anomaly Dashboard | CGV
+# 📊 CDR SMS Bulk Top10 Dashboard | CGV
 # Dark/Light Mode + SMS Theme
 # =========================================
 
@@ -48,8 +48,8 @@ else:
 # Title + Banner / SMS Theme
 # ==============================
 st.markdown("""
-    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top10 Anomaly Dashboard | CGV</h1>
-    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk</p>
+    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR SMS Bulk Top10 Dashboard | CGV</h1>
+    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk Top 10 </p>
 """, unsafe_allow_html=True)
 
 st.image("https://img.icons8.com/external-flaticons-lineal-color-flat-icons/64/000000/external-sms-communication-flaticons-lineal-color-flat-icons.png", width=80)
