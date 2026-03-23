@@ -1,6 +1,6 @@
 # =========================================
-# 📊 CDR SMS Bulk Top10 Dashboard | CGV
-# Dark/Light Mode + Editable Predict Range + Text Input Data Masking
+# 📊 CDR Bulk Top10 Dashboard | CGV
+# Dark/Light Mode + SMS Theme
 # =========================================
 
 import streamlit as st
@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ==============================
-# Dark/Light Mode toggle
+# Dark Mode toggle
 # ==============================
 dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
 if dark_mode:
@@ -44,7 +44,7 @@ else:
     """, unsafe_allow_html=True)
 
 # ==============================
-# Title
+# Title + Description
 # ==============================
 st.markdown("""
     <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top10 Dashboard | CGV</h1>
@@ -53,7 +53,7 @@ st.markdown("""
 st.markdown("---")
 
 # ==============================
-# Step 1️⃣ Upload Excel
+# Step 1: Upload Excel
 # ==============================
 st.markdown("### Step 1️⃣ Upload Excel File")
 uploaded_file = st.file_uploader("📁 Upload Excel file (XLSX)", type=["xlsx"])
@@ -66,32 +66,33 @@ if uploaded_file:
         df['end_date'] = pd.to_datetime(df['end_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # Step 2️⃣ Predict Range & Data Masking
+    # Step 2: Predict Range & Data Masking
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
-    # default = latest start / max end
-    default_start = df['start_date'].max().date()
-    default_end = df['end_date'].max().date() if 'end_date' in df.columns else df['start_date'].max().date()
+    # Predict Start = latest start_date
+    predict_start_default = df['start_date'].max().date()
+    # Predict End = max of end_date if exists, else max start_date
+    predict_end_default = df['end_date'].max().date() if 'end_date' in df.columns else df['start_date'].max().date()
 
     col1, col2 = st.columns(2)
     with col1:
-        predict_start_date = st.date_input("📅 Predict Start Date", value=default_start)
+        predict_start_date = st.date_input("📅 Predict Start Date", value=predict_start_default)
     with col2:
-        predict_end_date = st.date_input("📅 Predict End Date", value=default_end)
+        predict_end_date = st.date_input("📅 Predict End Date", value=predict_end_default)
 
-    # Data Masking editable text input
     data_masking_input = st.text_area(
         "💠 Data Masking (comma-separated, e.g. A1, A100, ...)", height=150
     )
 
     # ==============================
-    # Step 3️⃣ Run anomaly detection
+    # Step 3: Run anomaly detection
     # ==============================
     run_button = st.button("🚀 Step 3️⃣ Run Anomaly Detection")
 
     if run_button and data_masking_input:
         st.info("Processing... ⏳")
+
         data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
         train_start_date = pd.to_datetime(predict_start_date) - relativedelta(months=7)
         train_end_date   = pd.to_datetime(predict_end_date) - relativedelta(months=2)
@@ -108,11 +109,9 @@ if uploaded_file:
         progress = st.progress(0)
         total = len(data_masking_selected)
 
-        # ------------------------------
-        # Loop anomaly calculation
-        # ------------------------------
-        for i, es in enumerate(data_masking_selected,1):
-            df_es = df[df['data_masking']==es]
+        for i, es in enumerate(data_masking_selected, 1):
+            df_es = df[df['data_masking'] == es]
+
             if df_es.empty:
                 anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                     'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
@@ -245,7 +244,7 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # Step 4️⃣ Top10 + Filter + Chart
+        # Step 4: Filter & Top10 + Chart
         # ==============================
         st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
 
@@ -256,6 +255,10 @@ if uploaded_file:
             df_show = anomaly_results[anomaly_results['is_nomaly']==False]
         else:
             df_show = anomaly_results.copy()
+
+        # แปลงเป็น float สำหรับ Plotly
+        df_show['actual_volume'] = pd.to_numeric(df_show['actual_volume'], errors='coerce').fillna(0)
+        df_show['predicted_max'] = pd.to_numeric(df_show['predicted_max'], errors='coerce').fillna(0)
 
         df_show['diff_val'] = df_show['diff'].str.rstrip('%').astype(float).abs()
         df_top10 = df_show.sort_values('diff_val', ascending=False).head(10)
