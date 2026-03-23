@@ -1,5 +1,5 @@
 # =========================================
-# app.py - Streamlit UI Enhanced
+# app.py - Streamlit Complete Version
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -26,21 +26,60 @@ with st.expander("🔧 Upload & Predict Settings", expanded=True):
     train_end_date   = predict_end_date   - relativedelta(months=2)
 
 # =========================================
-# 2️⃣ Event Settings
+# 2️⃣ Event Settings + Dropdown
 # =========================================
-with st.expander("📝 Data Masking & Costcode Settings", expanded=True):
-    user_input = st.text_area(
-        "Enter data_masking:costcode list (comma-separated, costcode optional)",
-        "event1:eventcode1,event2"
-    )
+with st.expander("📝 Select Event to View Trend", expanded=True):
+    if uploaded_file is not None:
+        df = pd.read_excel(uploaded_file)
+        df.columns = df.columns.str.strip().str.lower()
+        df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
+
+        # dropdown data_masking
+        data_masking_list = df['data_masking'].dropna().unique().tolist()
+        selected_event = st.selectbox("Select data_masking to view trend", data_masking_list)
+
+        # filter by event
+        df_event = df[df['data_masking'] == selected_event].copy()
+        if 'costcode' in df_event.columns:
+            costcodes = df_event['costcode'].dropna().unique().tolist()
+            selected_costcode = st.selectbox("Select Costcode (optional)", [None]+costcodes)
+            if selected_costcode:
+                df_event = df_event[df_event['costcode'] == selected_costcode]
+        else:
+            selected_costcode = None
+
+        # plot trend
+        if not df_event.empty:
+            st.subheader(f"📈 Trend for {selected_event} {f'- {selected_costcode}' if selected_costcode else ''}")
+
+            df_trend = df_event.groupby('start_date')['volume_monthly'].sum().reset_index()
+            df_trend.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
+
+            if df_trend.shape[0] >= 2:
+                model = Prophet()
+                model.fit(df_trend)
+                future = model.make_future_dataframe(periods=1, freq='M')
+                forecast = model.predict(future)
+
+                st.line_chart(pd.DataFrame({
+                    'Actual': df_trend.set_index('ds')['y'],
+                    'Forecast': forecast.set_index('ds')['yhat'],
+                    'Lower': forecast.set_index('ds')['yhat_lower'],
+                    'Upper': forecast.set_index('ds')['yhat_upper']
+                }))
+            else:
+                st.warning("ข้อมูลไม่เพียงพอสำหรับการสร้าง trend (ต้องมีอย่างน้อย 2 เดือน)")
+        else:
+            st.warning("ไม่มีข้อมูลสำหรับ event/costcode ที่เลือก")
 
 # =========================================
 # 3️⃣ Run Anomaly Detection
 # =========================================
 if uploaded_file is not None and st.button("Run Anomaly Detection ▶"):
-    df = pd.read_excel(uploaded_file)
-    df.columns = df.columns.str.strip().str.lower()
-    df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
+    user_input = st.text_area(
+        "Enter data_masking:costcode list (comma-separated, costcode optional)",
+        "event1:eventcode1,event2"
+    )
 
     event_pairs = []
     for pair in user_input.split(','):
@@ -161,7 +200,7 @@ if uploaded_file is not None and st.button("Run Anomaly Detection ▶"):
         anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
         anomaly_results['results'] = anomaly_results['results'].apply(lambda x: 'TRUE' if x else 'FALSE')
 
-        # filter sidebar
+        # sidebar filter
         st.sidebar.header("🔍 Filter Results")
         filter_result = st.sidebar.multiselect("Results", ['TRUE','FALSE'], default=['TRUE','FALSE'])
         filter_costcode = st.sidebar.text_input("Filter Costcode (optional)")
@@ -173,7 +212,7 @@ if uploaded_file is not None and st.button("Run Anomaly Detection ▶"):
         def highlight_results(val):
             color = 'lightgreen' if val == 'TRUE' else 'lightcoral'
             return f'background-color: {color}'
-        
+
         st.subheader("Anomaly Results")
         st.dataframe(filtered_df.style.applymap(highlight_results, subset=['results']))
 
