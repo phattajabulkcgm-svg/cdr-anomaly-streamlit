@@ -1,6 +1,8 @@
 streamlit
 pandas
-openpyxl
-prophet
-cmdstanpy
+prophet==1.2.1
+cmdstanpy==1.1.0
 python-dateutil
+pytz
+openpyxl
+plotly
