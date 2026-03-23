@@ -46,7 +46,7 @@ else:
 # Title
 # ==============================
 st.markdown("""
-    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top 10 Dashboard | CGV</h1>
+    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Dashboard | CGV</h1>
     <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk</p>
 """, unsafe_allow_html=True)
 
@@ -136,9 +136,7 @@ if uploaded_file:
             event_type_id = df_es['event_type_id'].dropna().unique()[0] if 'event_type_id' in df_es.columns else None
             costcode = cc if cc else df_es['costcode'].dropna().unique()[0]
 
-            # =========================
             # actual / prev
-            # =========================
             actual_volume = df_es[
                 (df_es['start_date'] >= predict_start_date) &
                 (df_es['start_date'] <= predict_end_date)
@@ -148,12 +146,9 @@ if uploaded_file:
                 (df_es['start_date'] >= predict_start_date - relativedelta(months=1)) &
                 (df_es['start_date'] <= predict_end_date - relativedelta(months=1))
             ]['volume_monthly'].sum()
-
             prev_volume = prev_volume if prev_volume != 0 else None
 
-            # =========================================
             # RULE 1: New Usage
-            # =========================================
             if (prev_volume is None or prev_volume == 0) and actual_volume > 0:
                 anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                     'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
@@ -173,9 +168,7 @@ if uploaded_file:
                 })], ignore_index=True)
                 continue
 
-            # =========================================
             # train model
-            # =========================================
             df_train = df_es[
                 (df_es['start_date'] >= train_start_date) &
                 (df_es['start_date'] <= train_end_date)
@@ -200,9 +193,7 @@ if uploaded_file:
                 predicted_max = max(df_train['y'].median(), 1) if not df_train.empty else 1
                 predicted_min = 0
 
-            # =========================================
             # RULE 2: Drop to Zero
-            # =========================================
             if prev_volume is not None and prev_volume > 0 and actual_volume == 0:
                 anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                     'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
@@ -222,9 +213,7 @@ if uploaded_file:
                 })], ignore_index=True)
                 continue
 
-            # =========================================
             # anomaly logic
-            # =========================================
             diff = round((actual_volume - predicted_max) / predicted_max * 100, 2) if predicted_max else None
             if diff is None:
                 is_nomaly = False
@@ -264,7 +253,12 @@ if uploaded_file:
             })], ignore_index=True)
 
         # ==============================
-        # sort table
+        # แปลง is_nomaly เป็น TRUE/FALSE
+        # ==============================
+        anomaly_results['is_nomaly'] = anomaly_results['is_nomaly'].apply(lambda x: "TRUE" if x else "FALSE")
+
+        # ==============================
+        # sort: FALSE ก่อน -> remark
         # ==============================
         def remark_priority(x):
             if "❗" in str(x):
@@ -276,9 +270,8 @@ if uploaded_file:
             else:
                 return 3
 
-        anomaly_results['is_nomaly_sort'] = anomaly_results['is_nomaly'].apply(lambda x: 0 if x == False else 1)
         anomaly_results['remark_sort'] = anomaly_results['remark'].apply(remark_priority)
-        anomaly_results = anomaly_results.sort_values(by=['is_nomaly_sort','remark_sort']).drop(columns=['is_nomaly_sort','remark_sort'])
+        anomaly_results = anomaly_results.sort_values(by=['is_nomaly','remark_sort'], ascending=[True, True]).drop(columns=['remark_sort'])
 
         # ==============================
         # show table
