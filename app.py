@@ -1,6 +1,6 @@
 # =========================================
 # 📊 CDR Bulk Top10 Dashboard | CGV
-# Dark/Light Mode + Filter anomalies (All/TRUE/FALSE)
+# Dark/Light Mode + Filter anomalies
 # =========================================
 
 import streamlit as st
@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ==============================
-# Dark Mode toggle
+# Dark Mode toggle (default Light)
 # ==============================
 dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
 if dark_mode:
@@ -47,7 +47,7 @@ else:
 # ==============================
 st.markdown("""
     <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top10 Dashboard | CGV</h1>
-    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk Top 10 </p>
+    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk Top 10</p>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -66,7 +66,7 @@ if uploaded_file:
         df['end_date'] = pd.to_datetime(df['end_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # Step 2: Predict Range & Data Masking
+    # Step 2: Set Predict Range & Data Masking
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
@@ -143,7 +143,6 @@ if uploaded_file:
                 (df_es['start_date'] >= predict_start_date - relativedelta(months=1)) &
                 (df_es['start_date'] <= predict_end_date - relativedelta(months=1))
             ]['volume_monthly'].sum()
-
             prev_volume = prev_volume if prev_volume != 0 else None
 
             # RULE 1: New Usage
@@ -209,19 +208,19 @@ if uploaded_file:
                 continue
 
             # anomaly logic
-            diff = round((actual_volume - predicted_max) / predicted_max * 100,2) if predicted_max else None
-            if diff is None:
-                is_nomaly=False; level=None; remark=""
-            elif diff==0:
-                is_nomaly=True; level="Normal"; remark=""
-            else:
-                if diff>50:
-                    level="High"; remark="❗ เพิ่มขึ้นผิดปกติ"
-                elif diff<-50:
-                    level="Low"; remark="❗ ลดลงผิดปกติ"
+            diff = round((actual_volume - predicted_max)/predicted_max*100,2) if predicted_max else None
+            is_nomaly = False; level=None; remark=""
+            if diff is not None:
+                if diff==0:
+                    is_nomaly=True; level="Normal"; remark=""
                 else:
-                    level="Normal"; remark=""
-                is_nomaly = abs(diff) > 5
+                    if diff>50:
+                        level="High"; remark="❗ เพิ่มขึ้นผิดปกติ"
+                    elif diff<-50:
+                        level="Low"; remark="❗ ลดลงผิดปกติ"
+                    else:
+                        level="Normal"; remark=""
+                    is_nomaly = abs(diff) > 5
 
             anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                 'predict_range':[f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
@@ -242,29 +241,31 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # Step 4: Filter anomalies (All / TRUE / FALSE)
+        # Step 4: Filter anomalies + Show table
         # ==============================
         st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
 
-        # แปลงตัวเลข column เป็น float
-        anomaly_results['actual_volume'] = pd.to_numeric(anomaly_results['actual_volume'], errors='coerce').fillna(0)
-        anomaly_results['predicted_max'] = pd.to_numeric(anomaly_results['predicted_max'], errors='coerce').fillna(0)
+        # แปลงเป็น Boolean
+        anomaly_results['is_nomaly'] = anomaly_results['is_nomaly'].astype(bool)
 
-        is_nomaly_filter = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
-        if is_nomaly_filter=="TRUE":
-            df_show = anomaly_results[anomaly_results['is_nomaly']==True]
-        elif is_nomaly_filter=="FALSE":
-            df_show = anomaly_results[anomaly_results['is_nomaly']==False]
+        filter_option = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
+        if filter_option=="TRUE":
+            df_show = anomaly_results[anomaly_results['is_nomaly']]
+        elif filter_option=="FALSE":
+            df_show = anomaly_results[~anomaly_results['is_nomaly']]
         else:
             df_show = anomaly_results.copy()
 
-        st.dataframe(df_show, use_container_width=True)
+        # Highlight Top10 by abs diff
+        df_show['diff_val'] = df_show['diff'].str.rstrip('%').astype(float).abs()
+        df_top10 = df_show.sort_values('diff_val', ascending=False).head(10).drop(columns=['diff_val'])
+        st.dataframe(df_top10)
 
-        # Download all filtered results
+        # Download Excel
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
         file_name = f"cdr_bulk_top10_dashboard_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        df_show.to_excel(output, index=False)
+        df_top10.to_excel(output, index=False)
         output.seek(0)
-        st.download_button("📥 Download Filtered Excel", data=output, file_name=file_name)
+        st.download_button("📥 Download Top10 Excel", data=output, file_name=file_name)
