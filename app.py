@@ -1,6 +1,6 @@
 # =========================================
 # 📊 CDR Bulk Top10 Dashboard | CGV
-# Dark/Light Mode + SMS Theme
+# Dark/Light Mode + SMS Theme + Fix All Rows Display
 # =========================================
 
 import streamlit as st
@@ -16,7 +16,7 @@ import plotly.express as px
 # Page config
 # ==============================
 st.set_page_config(
-    page_title="CDR Bulk Top10 Dashboard | CGV",
+    page_title="CDR Bulk Top10 Anomaly Dashboard | CGV",
     layout="wide"
 )
 
@@ -44,12 +44,13 @@ else:
     """, unsafe_allow_html=True)
 
 # ==============================
-# Title + Description
+# Title
 # ==============================
 st.markdown("""
     <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top10 Dashboard | CGV</h1>
     <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk Top 10 </p>
 """, unsafe_allow_html=True)
+
 st.markdown("---")
 
 # ==============================
@@ -70,9 +71,7 @@ if uploaded_file:
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
-    # Predict Start = latest start_date
     predict_start_default = df['start_date'].max().date()
-    # Predict End = max of end_date if exists, else max start_date
     predict_end_default = df['end_date'].max().date() if 'end_date' in df.columns else df['start_date'].max().date()
 
     col1, col2 = st.columns(2)
@@ -244,25 +243,27 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # Step 4: Filter & Top10 + Chart
+        # Step 4: Filter & Highlight Top10 + Chart
         # ==============================
         st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
 
+        # แปลงตัวเลข column เป็น float
+        anomaly_results['actual_volume'] = pd.to_numeric(anomaly_results['actual_volume'], errors='coerce').fillna(0)
+        anomaly_results['predicted_max'] = pd.to_numeric(anomaly_results['predicted_max'], errors='coerce').fillna(0)
+        anomaly_results['predicted_min'] = pd.to_numeric(anomaly_results['predicted_min'], errors='coerce').fillna(0)
+
         is_nomaly_filter = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
+        df_show = anomaly_results.copy()
         if is_nomaly_filter=="TRUE":
-            df_show = anomaly_results[anomaly_results['is_nomaly']==True]
+            df_show = df_show[df_show['is_nomaly']==True]
         elif is_nomaly_filter=="FALSE":
-            df_show = anomaly_results[anomaly_results['is_nomaly']==False]
-        else:
-            df_show = anomaly_results.copy()
+            df_show = df_show[df_show['is_nomaly']==False]
 
-        # แปลงเป็น float สำหรับ Plotly
-        df_show['actual_volume'] = pd.to_numeric(df_show['actual_volume'], errors='coerce').fillna(0)
-        df_show['predicted_max'] = pd.to_numeric(df_show['predicted_max'], errors='coerce').fillna(0)
-
+        # Top10 chart
         df_show['diff_val'] = df_show['diff'].str.rstrip('%').astype(float).abs()
         df_top10 = df_show.sort_values('diff_val', ascending=False).head(10)
-        st.dataframe(df_top10.drop(columns=['diff_val']))
+
+        st.dataframe(df_show)  # <-- แสดงทั้งหมดที่เลือก
 
         if not df_top10.empty:
             fig = px.bar(
