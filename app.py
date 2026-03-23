@@ -1,6 +1,6 @@
 # =========================================
 # 📊 CDR Bulk Top10 Anomaly Dashboard | CGV
-# Light Mode Default + Optional Dark Mode
+# Dark/Light Mode + SMS Theme
 # =========================================
 
 import streamlit as st
@@ -45,9 +45,15 @@ else:
     """, unsafe_allow_html=True)
 
 # ==============================
-# Title
+# Title + Banner / SMS Theme
 # ==============================
-st.markdown("<h1 style='text-align: center; color: #4CAF50;'>📊 CDR Bulk Top10 Anomaly Dashboard | CGV</h1>", unsafe_allow_html=True)
+st.markdown("""
+    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top10 Anomaly Dashboard | CGV</h1>
+    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk</p>
+""", unsafe_allow_html=True)
+
+st.image("https://img.icons8.com/external-flaticons-lineal-color-flat-icons/64/000000/external-sms-communication-flaticons-lineal-color-flat-icons.png", width=80)
+
 st.markdown("---")
 
 # ==============================
@@ -68,7 +74,7 @@ if uploaded_file:
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
-    predict_start_default = df['start_date'].min().date()
+    predict_start_default = df['start_date'].iloc[0].date()
     predict_end_default = df['end_date'].max().date() if 'end_date' in df.columns else df['start_date'].max().date()
 
     col1, col2 = st.columns(2)
