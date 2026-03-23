@@ -158,7 +158,7 @@ if uploaded_file:
                     'predicted_max': [None],
                     'is_nomaly': [False],
                     'diff': ["100%"],
-                    'level': ["High"],
+                    'level': ["Normal"],
                     'remark': ["❗ Usage ใหม่ (เดือนก่อน=0)"],
                     'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': ["Rule-based"]
@@ -199,7 +199,7 @@ if uploaded_file:
                     'predicted_max': [predicted_max],
                     'is_nomaly': [False],
                     'diff': ["-100%"],
-                    'level': ["Low"],
+                    'level': ["Normal"],
                     'remark': ["❗ Usage หายไปจากเดือนก่อน"],
                     'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': [method]
@@ -207,20 +207,27 @@ if uploaded_file:
                 progress.progress(i/total)
                 continue
 
-            # anomaly logic
+            # ==============================
+            # anomaly logic ปรับ remark ตาม method และ เพิ่ม/ลด
+            # ==============================
             diff = round((actual_volume - predicted_max)/predicted_max*100,2) if predicted_max else None
-            is_nomaly = False; level=None; remark=""
+            is_nomaly = False
+            level = "Normal"
+            remark = ""
+
             if diff is not None:
-                if diff==0:
-                    is_nomaly=True; level="Normal"; remark=""
-                else:
-                    if diff>50:
-                        level="High"; remark="❗ เพิ่มขึ้นผิดปกติ"
-                    elif diff<-50:
-                        level="Low"; remark="❗ ลดลงผิดปกติ"
+                is_nomaly = abs(diff) > 5
+                if is_nomaly:
+                    if actual_volume - predicted_max > 0:
+                        if method == "Prophet":
+                            remark = "❗ เพิ่มขึ้นผิดปกติ เมื่อเทียบกับ 6 เดือนย้อนหลัง"
+                        else:
+                            remark = "❗ เพิ่มขึ้นผิดปกติ เมื่อเทียบกับเดือนที่ก่อนหน้า"
                     else:
-                        level="Normal"; remark=""
-                    is_nomaly = abs(diff) > 5
+                        if method == "Prophet":
+                            remark = "❗ ลดลงผิดปกติ เมื่อเทียบกับ 6 เดือนย้อนหลัง"
+                        else:
+                            remark = "❗ ลดลงผิดปกติ เมื่อเทียบกับเดือนที่ก่อนหน้า"
 
             anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                 'predict_range':[f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
