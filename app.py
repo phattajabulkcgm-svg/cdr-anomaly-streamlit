@@ -26,7 +26,7 @@ with st.expander("🔧 Upload & Predict Settings", expanded=True):
     train_end_date   = predict_end_date   - relativedelta(months=2)
 
 # =========================================
-# 2️⃣ Event Settings + Dropdown
+# 2️⃣ Dropdown Event + Trend Graph
 # =========================================
 with st.expander("📝 Select Event to View Trend", expanded=True):
     if uploaded_file is not None:
@@ -51,7 +51,6 @@ with st.expander("📝 Select Event to View Trend", expanded=True):
         # plot trend
         if not df_event.empty:
             st.subheader(f"📈 Trend for {selected_event} {f'- {selected_costcode}' if selected_costcode else ''}")
-
             df_trend = df_event.groupby('start_date')['volume_monthly'].sum().reset_index()
             df_trend.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
 
