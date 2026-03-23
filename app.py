@@ -1,5 +1,6 @@
 # =========================================
 # Streamlit CDR Anomaly Detection
+# User can input Data Masking manually
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -25,9 +26,6 @@ if uploaded_file:
     df.columns = df.columns.str.strip().str.lower()
     df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
-    # auto get unique data_masking for multi-select
-    unique_masking = df['data_masking'].dropna().unique().tolist()
-
     col1, col2 = st.columns(2)
     with col1:
         predict_start_date = st.date_input("Predict Start Date")
@@ -38,10 +36,10 @@ if uploaded_file:
     predict_start_date = pd.to_datetime(predict_start_date)
     predict_end_date   = pd.to_datetime(predict_end_date)
 
-    data_masking_selected = st.multiselect(
-        "Select Data Masking",
-        options=unique_masking,
-        default=unique_masking[:5]  # default first 5
+    # Text area for user to input data_masking manually
+    data_masking_input = st.text_area(
+        "Data Masking (comma-separated, e.g. A1, A100, A101, ...)",
+        height=150
     )
 
     run_button = st.button("Run Anomaly Detection")
@@ -49,7 +47,10 @@ if uploaded_file:
     # =========================================
     # 3️⃣ Run anomaly
     # =========================================
-    if run_button and data_masking_selected:
+    if run_button and data_masking_input:
+        # split by comma and strip spaces
+        data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
+
         train_start_date = predict_start_date - relativedelta(months=7)
         train_end_date   = predict_end_date   - relativedelta(months=2)
 
