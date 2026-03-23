@@ -20,7 +20,10 @@ st.title("📊 CDR SMS Bulk Detection Dashboard")
 st.header("STEP 1: Upload File & Select Predict Period")
 st.info("""
 **Required columns in Excel:**  
-`data_masking`, `start_date`, `volume_monthly`, `account_num`, `event_type_id`  
+
+`data_masking`, `account_num`, `event_seq`, `min_event_dtm`, `max_event_dtm`,  
+`start_date`, `end_date`, `costcode`, `event_type_id`, `money_mothly`, `volume_monthly`, `node_name`  
+
 Make sure column names match exactly (case-insensitive)
 """)
 
