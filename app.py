@@ -1,50 +1,46 @@
 # =========================================
-# app.py for Streamlit
+# app.py - Streamlit UI Enhanced
 # =========================================
 import streamlit as st
 import pandas as pd
 from prophet import Prophet
-from tabulate import tabulate
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import pytz
 
 st.set_page_config(page_title="CDR Anomaly Detection", layout="wide")
-st.title("📊 CDR Anomaly Detection")
+st.title("📊 CDR Anomaly Detection Dashboard")
 
 # =========================================
-# 1️⃣ Upload Excel
+# 1️⃣ Upload & Predict Settings
 # =========================================
-uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
-if uploaded_file is not None:
-    df = pd.read_excel(uploaded_file)
-    df.columns = df.columns.str.strip().str.lower()
-    df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
-
-    st.success(f"File uploaded: {uploaded_file.name}")
-    
-    # =========================================
-    # 2️⃣ Input predict range
-    # =========================================
-    st.subheader("Predict Period")
+with st.expander("🔧 Upload & Predict Settings", expanded=True):
+    uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
     col1, col2 = st.columns(2)
     with col1:
         predict_start_date = st.date_input("Predict Start Date", datetime.today())
     with col2:
         predict_end_date = st.date_input("Predict End Date", datetime.today())
 
-    # train 6 เดือน + skip 1 เดือน
     train_start_date = predict_start_date - relativedelta(months=7)
     train_end_date   = predict_end_date   - relativedelta(months=2)
 
-    # =========================================
-    # 3️⃣ Input event list
-    # =========================================
-    st.subheader("Data Masking & Costcode")
+# =========================================
+# 2️⃣ Event Settings
+# =========================================
+with st.expander("📝 Data Masking & Costcode Settings", expanded=True):
     user_input = st.text_area(
         "Enter data_masking:costcode list (comma-separated, costcode optional)",
         "event1:eventcode1,event2"
     )
+
+# =========================================
+# 3️⃣ Run Anomaly Detection
+# =========================================
+if uploaded_file is not None and st.button("Run Anomaly Detection ▶"):
+    df = pd.read_excel(uploaded_file)
+    df.columns = df.columns.str.strip().str.lower()
+    df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
     event_pairs = []
     for pair in user_input.split(','):
@@ -54,16 +50,13 @@ if uploaded_file is not None:
         else:
             event_pairs.append((pair.strip(), None))
 
-    # =========================================
-    # 4️⃣ Run anomaly detection
-    # =========================================
-    if st.button("Run Anomaly Detection"):
-        anomaly_results = pd.DataFrame(columns=[
-            'predict_range','data_masking','account_num','event_type_id','costcode',
-            'predicted_min','actual_volume','predicted_max',
-            'results','diff','remark','train_range','method'
-        ])
+    anomaly_results = pd.DataFrame(columns=[
+        'predict_range','data_masking','account_num','event_type_id','costcode',
+        'predicted_min','actual_volume','predicted_max',
+        'results','diff','remark','train_range','method'
+    ])
 
+    with st.spinner("⏳ กำลังประมวลผล..."):
         for es, cc in event_pairs:
             df_es = df[df['data_masking'] == es]
             if cc:
@@ -99,7 +92,6 @@ if uploaded_file is not None:
             ].groupby('start_date')['volume_monthly'].sum().reset_index()
             df_train.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
 
-            # train forecast
             if df_train.shape[0] >= 6:
                 model = Prophet()
                 model.fit(df_train)
@@ -164,19 +156,30 @@ if uploaded_file is not None:
                 'method':[method_val]
             })], ignore_index=True)
 
-        # sort by results & remark
+        # sort
         anomaly_results['results_sort'] = anomaly_results['results'].apply(lambda x: 1 if x else 0)
         anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
-
-        # แปลง results เป็น TRUE / FALSE
         anomaly_results['results'] = anomaly_results['results'].apply(lambda x: 'TRUE' if x else 'FALSE')
 
-        st.subheader("Anomaly Results")
-        st.dataframe(anomaly_results)
+        # filter sidebar
+        st.sidebar.header("🔍 Filter Results")
+        filter_result = st.sidebar.multiselect("Results", ['TRUE','FALSE'], default=['TRUE','FALSE'])
+        filter_costcode = st.sidebar.text_input("Filter Costcode (optional)")
+        filtered_df = anomaly_results[anomaly_results['results'].isin(filter_result)]
+        if filter_costcode:
+            filtered_df = filtered_df[filtered_df['costcode'].str.contains(filter_costcode)]
 
-        # Download Excel
+        # highlight
+        def highlight_results(val):
+            color = 'lightgreen' if val == 'TRUE' else 'lightcoral'
+            return f'background-color: {color}'
+        
+        st.subheader("Anomaly Results")
+        st.dataframe(filtered_df.style.applymap(highlight_results, subset=['results']))
+
+        # download
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         file_name = f"cdr_anomaly_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        anomaly_results.to_excel(file_name,index=False)
-        st.download_button("Download Excel", file_name, file_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        filtered_df.to_excel(file_name,index=False)
+        st.download_button("💾 Download Excel", file_name, file_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
