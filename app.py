@@ -1,5 +1,5 @@
 # =========================================
-# app.py - Streamlit Complete Version (data_masking only)
+# app.py - Streamlit Dashboard 4 Steps
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -11,22 +11,18 @@ import pytz
 # ---------------------------
 # Page Config
 # ---------------------------
-st.set_page_config(page_title="CDR SMS Bulk Detection Dashboard", layout="wide")
-st.title("📊 CDR SMS Bulk Detection Dashboard")
+st.set_page_config(page_title="CDR SMS Bulk Detection Dashboard | CGV", layout="wide")
+st.title("📊 CDR SMS Bulk Detection Dashboard | CGV")
 
 # ==========================
-# STEP 1️⃣ Upload File & Select Predict Period
+# STEP 1: Upload File & Predict Period
 # ==========================
-st.header("STEP 1: Upload File & Select Predict Period")
+st.header("STEP 1️⃣ Upload File & Select Predict Period")
 st.info("""
 **Required columns in Excel:**  
-
-`data_masking`, `account_num`, `event_seq`, `min_event_dtm`, `max_event_dtm`,  
-`start_date`, `end_date`, `costcode`, `event_type_id`, `money_mothly`, `volume_monthly`, `node_name`  
-
-Make sure column names match exactly (case-insensitive)
+data_masking, account_num, event_seq, min_event_dtm, max_event_dtm,  
+start_date, end_date, costcode, event_type_id, money_mothly, volume_monthly, node_name
 """)
-
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 col1, col2 = st.columns(2)
 with col1:
@@ -37,23 +33,26 @@ with col2:
 train_start_date = predict_start_date - relativedelta(months=7)
 train_end_date   = predict_end_date   - relativedelta(months=2)
 
-# ==========================
-# STEP 2️⃣ Enter data_masking & Run Anomaly Detection
-# ==========================
+df = None
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip().str.lower()
     df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
-
     st.success("✅ File loaded successfully!")
 
-    st.header("STEP 2: Enter data_masking list (comma-separated)")
+# ==========================
+# STEP 2: Enter data_masking & Run
+# ==========================
+if df is not None:
+    st.header("STEP 2️⃣ Enter data_masking list (comma-separated)")
     data_masking_input = st.text_area(
         "Enter data_masking (e.g., A1,A11,A98)", 
         ",".join(df['data_masking'].dropna().unique())
     )
 
-    if st.button("▶ Run Anomaly Detection"):
+    run_button = st.button("▶ Run Anomaly Detection")
+    if run_button:
+        # prepare list
         event_list = [x.strip() for x in data_masking_input.split(',') if x.strip()]
         anomaly_results = pd.DataFrame(columns=[
             'predict_range','data_masking','account_num','event_type_id',
@@ -64,7 +63,6 @@ if uploaded_file is not None:
         with st.spinner("⏳ Calculating anomalies..."):
             for es in event_list:
                 df_es = df[df['data_masking'] == es]
-
                 if df_es.empty:
                     anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                         'predict_range':[f"{predict_start_date} ถึง {predict_end_date}"],
@@ -75,8 +73,8 @@ if uploaded_file is not None:
                     })], ignore_index=True)
                     continue
 
-                account_num = df_es['account_num'].dropna().unique()[0] if 'account_num' in df_es.columns and not df_es['account_num'].dropna().empty else None
-                event_type_id = df_es['event_type_id'].dropna().unique()[0] if 'event_type_id' in df_es.columns and not df_es['event_type_id'].dropna().empty else None
+                account_num = df_es['account_num'].dropna().unique()[0] if not df_es['account_num'].dropna().empty else None
+                event_type_id = df_es['event_type_id'].dropna().unique()[0] if not df_es['event_type_id'].dropna().empty else None
 
                 actual_volume = df_es[
                     (df_es['start_date'] >= pd.to_datetime(predict_start_date)) &
@@ -106,7 +104,7 @@ if uploaded_file is not None:
                     predicted_max = df_train['y'].max() if not df_train.empty else 0
                     method_val = "Median fallback"
 
-                # rules & results
+                # rules
                 if prev_volume==0 and actual_volume>0:
                     results_val = False
                     diff_val = 100
@@ -157,18 +155,9 @@ if uploaded_file is not None:
                     'method':[method_val]
                 })], ignore_index=True)
 
-        # sort & TRUE/FALSE
-        anomaly_results['results_sort'] = anomaly_results['results'].apply(lambda x: 1 if x else 0)
-        anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
         anomaly_results['results'] = anomaly_results['results'].apply(lambda x: 'TRUE' if x else 'FALSE')
-
-        # highlight
-        def highlight_results(val):
-            color = 'lightgreen' if val == 'TRUE' else 'lightcoral'
-            return f'background-color: {color}'
-
-        st.subheader("STEP 3: Anomaly Results Table")
-        st.dataframe(anomaly_results.style.applymap(highlight_results, subset=['results']))
+        st.subheader("STEP 3️⃣ Anomaly Detection Results")
+        st.dataframe(anomaly_results.style.applymap(lambda val: 'background-color: lightgreen' if val=='TRUE' else 'lightcoral', subset=['results']))
 
         # download
         tz = pytz.timezone('Asia/Bangkok')
@@ -177,33 +166,29 @@ if uploaded_file is not None:
         anomaly_results.to_excel(file_name,index=False)
         st.download_button("💾 Download Excel", file_name, file_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# ==========================
-# STEP 4️⃣ Select Event to View Trend Graph
-# ==========================
-if uploaded_file is not None:
-    st.header("STEP 4: Select Event to View Trend Graph")
-    data_masking_list = df['data_masking'].dropna().unique().tolist()
-    selected_event = st.selectbox("Select data_masking to view trend", data_masking_list)
-    df_event = df[df['data_masking'] == selected_event].copy()
+        # ==========================
+        # STEP 4: Select Data_Masking View Trend Graph
+        # ==========================
+        st.header("STEP 4️⃣ Select Data_Masking View Trend Graph")
+        selected_event = st.selectbox("Select data_masking to view trend", event_list)
+        df_event = df[df['data_masking']==selected_event].copy()
+        if not df_event.empty:
+            st.subheader(f"📈 Trend for {selected_event}")
+            df_trend = df_event.groupby('start_date')['volume_monthly'].sum().reset_index()
+            df_trend.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
 
-    if not df_event.empty:
-        st.subheader(f"📈 Trend for {selected_event}")
-        df_trend = df_event.groupby('start_date')['volume_monthly'].sum().reset_index()
-        df_trend.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
-
-        if df_trend.shape[0] >= 2:
-            model = Prophet()
-            model.fit(df_trend)
-            future = model.make_future_dataframe(periods=1, freq='M')
-            forecast = model.predict(future)
-
-            st.line_chart(pd.DataFrame({
-                'Actual': df_trend.set_index('ds')['y'],
-                'Forecast': forecast.set_index('ds')['yhat'],
-                'Lower': forecast.set_index('ds')['yhat_lower'],
-                'Upper': forecast.set_index('ds')['yhat_upper']
-            }))
+            if df_trend.shape[0]>=2:
+                model = Prophet()
+                model.fit(df_trend)
+                future = model.make_future_dataframe(periods=1, freq='M')
+                forecast = model.predict(future)
+                st.line_chart(pd.DataFrame({
+                    'Actual': df_trend.set_index('ds')['y'],
+                    'Forecast': forecast.set_index('ds')['yhat'],
+                    'Lower': forecast.set_index('ds')['yhat_lower'],
+                    'Upper': forecast.set_index('ds')['yhat_upper']
+                }))
+            else:
+                st.warning("ข้อมูลไม่เพียงพอสำหรับ trend (ต้องมีอย่างน้อย 2 เดือน)")
         else:
-            st.warning("ข้อมูลไม่เพียงพอสำหรับการสร้าง trend (ต้องมีอย่างน้อย 2 เดือน)")
-    else:
-        st.warning("ไม่มีข้อมูลสำหรับ event ที่เลือก")
+            st.warning("ไม่มีข้อมูลสำหรับ event ที่เลือก")
