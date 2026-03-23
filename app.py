@@ -1,6 +1,6 @@
 # =========================================
-# 📊 CDR Bulk Top10 Dashboard | CGV
-# Dark/Light Mode + Filter anomalies
+# 📊 CDR Bulk Dashboard | CGV
+# Prophet + Rule-based | Dark/Light Mode | Full Table
 # =========================================
 
 import streamlit as st
@@ -15,12 +15,12 @@ import pytz
 # Page config
 # ==============================
 st.set_page_config(
-    page_title="CDR Bulk Top10 Dashboard | CGV",
+    page_title="CDR Bulk Dashboard | CGV",
     layout="wide"
 )
 
 # ==============================
-# Dark Mode toggle
+# Dark Mode toggle (default Light)
 # ==============================
 dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
 if dark_mode:
@@ -46,14 +46,14 @@ else:
 # Title
 # ==============================
 st.markdown("""
-    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top10 Dashboard | CGV</h1>
-    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk Top 10</p>
+    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Dashboard | CGV</h1>
+    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk</p>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
 
 # ==============================
-# Step 1: Upload Excel
+# Step 1️⃣ Upload Excel
 # ==============================
 st.markdown("### Step 1️⃣ Upload Excel File")
 uploaded_file = st.file_uploader("📁 Upload Excel file (XLSX)", type=["xlsx"])
@@ -66,10 +66,11 @@ if uploaded_file:
         df['end_date'] = pd.to_datetime(df['end_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # Step 2: Predict Range & Data Masking
+    # Step 2️⃣ Predict Range & Data Masking
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
+    # Predict default = latest start_date และ max end_date
     predict_start_default = df['start_date'].max().date()
     predict_end_default = df['end_date'].max().date() if 'end_date' in df.columns else df['start_date'].max().date()
 
@@ -84,13 +85,12 @@ if uploaded_file:
     )
 
     # ==============================
-    # Step 3: Run anomaly detection
+    # Step 3️⃣ Run Anomaly Detection
     # ==============================
     run_button = st.button("🚀 Step 3️⃣ Run Anomaly Detection")
 
     if run_button and data_masking_input:
         st.info("Processing... ⏳")
-
         data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
         train_start_date = pd.to_datetime(predict_start_date) - relativedelta(months=7)
         train_end_date   = pd.to_datetime(predict_end_date) - relativedelta(months=2)
@@ -143,6 +143,7 @@ if uploaded_file:
                 (df_es['start_date'] >= predict_start_date - relativedelta(months=1)) &
                 (df_es['start_date'] <= predict_end_date - relativedelta(months=1))
             ]['volume_monthly'].sum()
+
             prev_volume = prev_volume if prev_volume != 0 else None
 
             # RULE 1: New Usage
@@ -208,19 +209,19 @@ if uploaded_file:
                 continue
 
             # anomaly logic
-            diff = round((actual_volume - predicted_max)/predicted_max*100,2) if predicted_max else None
-            is_nomaly = False; level=None; remark=""
-            if diff is not None:
-                if diff==0:
-                    is_nomaly=True; level="Normal"; remark=""
+            diff = round((actual_volume - predicted_max) / predicted_max * 100,2) if predicted_max else None
+            if diff is None:
+                is_nomaly=False; level=None; remark=""
+            elif diff==0:
+                is_nomaly=True; level="Normal"; remark=""
+            else:
+                if diff>50:
+                    level="High"; remark="❗ เพิ่มขึ้นผิดปกติ"
+                elif diff<-50:
+                    level="Low"; remark="❗ ลดลงผิดปกติ"
                 else:
-                    if diff>50:
-                        level="High"; remark="❗ เพิ่มขึ้นผิดปกติ"
-                    elif diff<-50:
-                        level="Low"; remark="❗ ลดลงผิดปกติ"
-                    else:
-                        level="Normal"; remark=""
-                    is_nomaly = abs(diff) > 5
+                    level="Normal"; remark=""
+                is_nomaly = abs(diff) > 5
 
             anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                 'predict_range':[f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
@@ -241,30 +242,35 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # Step 4: Filter anomalies + Show table
+        # Step 4: Show Table (sorted)
         # ==============================
-        st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
-        anomaly_results['is_nomaly'] = anomaly_results['is_nomaly'].astype(bool)
+        st.markdown("### Step 4️⃣ ✅ Anomaly Results Table")
 
-        filter_option = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
-        if filter_option=="TRUE":
-            df_show = anomaly_results[anomaly_results['is_nomaly']==True]
-        elif filter_option=="FALSE":
-            df_show = anomaly_results[anomaly_results['is_nomaly']==False]
-        else:
-            df_show = anomaly_results.copy()
+        # Sort: is_nomaly=False ก่อน, remark priority
+        def remark_priority(x):
+            if "❗" in str(x):
+                return 0
+            elif "🟡" in str(x):
+                return 1
+            elif "⚫" in str(x):
+                return 2
+            else:
+                return 3
 
-        # Highlight Top10 by abs diff
-        df_show['diff_val'] = df_show['diff'].str.rstrip('%').astype(float).abs()
-        df_top10 = df_show.sort_values('diff_val', ascending=False).head(10).drop(columns=['diff_val'])
+        anomaly_results['is_nomaly_sort'] = anomaly_results['is_nomaly'].apply(lambda x: 0 if x==False else 1)
+        anomaly_results['remark_sort'] = anomaly_results['remark'].apply(remark_priority)
 
-        st.dataframe(df_top10)
+        anomaly_results = anomaly_results.sort_values(
+            by=['is_nomaly_sort','remark_sort']
+        ).drop(columns=['is_nomaly_sort','remark_sort'])
+
+        st.dataframe(anomaly_results)
 
         # Download Excel
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
-        file_name = f"cdr_bulk_top10_dashboard_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        df_top10.to_excel(output, index=False)
+        file_name = f"cdr_bulk_dashboard_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        anomaly_results.to_excel(output, index=False)
         output.seek(0)
-        st.download_button("📥 Download Top10 Excel", data=output, file_name=file_name)
+        st.download_button("📥 Download Excel", data=output, file_name=file_name)
