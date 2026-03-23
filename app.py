@@ -1,6 +1,6 @@
 # =========================================
-# 📊 CDR Bulk Top10 Anomaly Detection | CGV
-# Dark Mode Toggle + Step 2 default min/max
+# 📊 CDR Bulk Top10 Anomaly Dashboard | CGV
+# Highlight Top10 + Filter + Chart + Dark Mode
 # =========================================
 
 import streamlit as st
@@ -10,11 +10,12 @@ from prophet import Prophet
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 import pytz
+import plotly.express as px
 
 # ==============================
 # Page config
 # ==============================
-st.set_page_config(page_title="CDR Bulk Top10 Anomaly Detection | CGV", layout="wide")
+st.set_page_config(page_title="CDR Bulk Top10 Anomaly Dashboard | CGV", layout="wide")
 
 # ==============================
 # Dark Mode toggle
@@ -42,49 +43,42 @@ else:
 # ==============================
 # Title
 # ==============================
-st.markdown("<h1 style='text-align: center; color: #4CAF50;'>📊 CDR Bulk Top10 Anomaly Detection | CGV</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #4CAF50;'>📊 CDR Bulk Top10 Anomaly Dashboard | CGV</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
 # ==============================
 # STEP 1: Upload Excel
 # ==============================
 st.markdown("### Step 1️⃣ Upload Excel File")
-uploaded_file = st.file_uploader("📁 Upload Excel file (XLSX)", type=["xlsx"], label_visibility="visible")
+uploaded_file = st.file_uploader("📁 Upload Excel file (XLSX)", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip().str.lower()
     df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
+    if 'end_date' in df.columns:
+        df['end_date'] = pd.to_datetime(df['end_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # STEP 2: Predict Range & Data Masking (Default min/max latest month)
+    # STEP 2: Predict Range & Data Masking
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
-    # หาเดือนล่าสุด
-    latest_date = df['start_date'].max()
-    latest_month = latest_date.month
-    latest_year = latest_date.year
+    predict_start_default = df['start_date'].min().date()
+    if 'end_date' in df.columns:
+        predict_end_default = df['end_date'].max().date()
+    else:
+        predict_end_default = df['start_date'].max().date()
 
-    # กรองเฉพาะเดือนล่าสุด
-    df_latest_month = df[
-        (df['start_date'].dt.year == latest_year) &
-        (df['start_date'].dt.month == latest_month)
-    ]
+    col1, col2 = st.columns(2)
+    with col1:
+        predict_start_date = st.date_input("📅 Predict Start Date", value=predict_start_default)
+    with col2:
+        predict_end_date = st.date_input("📅 Predict End Date", value=predict_end_default)
 
-    month_min = df_latest_month['start_date'].min().date()
-    month_max = df_latest_month['start_date'].max().date()
-
-    with st.container():
-        col1, col2 = st.columns(2)
-        with col1:
-            predict_start_date = st.date_input("📅 Predict Start Date", value=month_min)
-        with col2:
-            predict_end_date = st.date_input("📅 Predict End Date", value=month_max)
-
-        data_masking_input = st.text_area(
-            "💠 Data Masking (comma-separated, e.g. A1, A100, ...)", height=150
-        )
+    data_masking_input = st.text_area(
+        "💠 Data Masking (comma-separated, e.g. A1, A100, ...)", height=150
+    )
 
     # ==============================
     # STEP 3: Run anomaly detection
@@ -214,7 +208,7 @@ if uploaded_file:
             # anomaly logic
             diff = round((actual_volume - predicted_max) / predicted_max * 100,2) if predicted_max else None
             if diff is None:
-                is_nomaly = False; level=None; remark=""
+                is_nomaly=False; level=None; remark=""
             elif diff==0:
                 is_nomaly=True; level="Normal"; remark=""
             else:
@@ -245,15 +239,44 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # STEP 4: Show Results + Download
+        # STEP 4: Filter & Highlight Top10 + Chart
         # ==============================
-        st.markdown("### Step 4️⃣ ✅ Anomaly Results")
-        st.dataframe(anomaly_results)
+        st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
 
+        # Filter TRUE/FALSE
+        is_nomaly_filter = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
+        if is_nomaly_filter=="TRUE":
+            df_show = anomaly_results[anomaly_results['is_nomaly']==True]
+        elif is_nomaly_filter=="FALSE":
+            df_show = anomaly_results[anomaly_results['is_nomaly']==False]
+        else:
+            df_show = anomaly_results.copy()
+
+        # Highlight Top10 by abs(diff)
+        df_show['diff_val'] = anomaly_results['diff'].str.rstrip('%').astype(float).abs()
+        df_top10 = df_show.sort_values('diff_val', ascending=False).head(10)
+
+        st.dataframe(df_top10.drop(columns=['diff_val']))
+
+        # Chart
+        if not df_top10.empty:
+            fig = px.bar(
+                df_top10,
+                x='data_masking',
+                y=['actual_volume','predicted_max'],
+                barmode='group',
+                color='level',
+                color_discrete_map={"High":"red","Low":"orange","Normal":"green"},
+                labels={'value':'Volume','data_masking':'Data Masking'},
+                title="Top10 Anomalies: Actual vs Predicted"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Download Excel
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
-        file_name = f"cdr_bulk_top10_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        anomaly_results.to_excel(output, index=False)
+        file_name = f"cdr_bulk_top10_dashboard_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        df_top10.to_excel(output, index=False)
         output.seek(0)
-        st.download_button("📥 Download Result Excel", data=output, file_name=file_name)
+        st.download_button("📥 Download Top10 Excel", data=output, file_name=file_name)
