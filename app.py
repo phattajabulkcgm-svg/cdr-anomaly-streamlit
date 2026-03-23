@@ -1,3 +1,6 @@
+# =========================================
+# Streamlit CDR Anomaly Detection
+# =========================================
 import streamlit as st
 import pandas as pd
 from io import BytesIO
@@ -9,44 +12,46 @@ import pytz
 st.set_page_config(page_title="CDR Anomaly Detection", layout="wide")
 st.title("📊 CDR Anomaly Detection (Prophet + Rule-based)")
 
-# -----------------------------
+# =========================================
 # 1️⃣ Upload Excel
-# -----------------------------
+# =========================================
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-# -----------------------------
+# =========================================
 # 2️⃣ Inputs
-# -----------------------------
-col1, col2 = st.columns(2)
-with col1:
-    predict_start_date = st.date_input("Predict Start Date")
-with col2:
-    predict_end_date = st.date_input("Predict End Date")
+# =========================================
+if uploaded_file:
+    df = pd.read_excel(uploaded_file)
+    df.columns = df.columns.str.strip().str.lower()
+    df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
-data_masking_input = st.text_input(
-    "Data Masking (comma separated, e.g. 12345:CC01,67890)"
-)
+    # auto get unique data_masking for multi-select
+    unique_masking = df['data_masking'].dropna().unique().tolist()
 
-# -----------------------------
-# 3️⃣ Run anomaly
-# -----------------------------
-if uploaded_file and data_masking_input:
-    try:
-        df = pd.read_excel(uploaded_file)
-        df.columns = df.columns.str.strip().str.lower()
-        df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
+    col1, col2 = st.columns(2)
+    with col1:
+        predict_start_date = st.date_input("Predict Start Date")
+    with col2:
+        predict_end_date = st.date_input("Predict End Date")
 
+    # convert to pd.Timestamp
+    predict_start_date = pd.to_datetime(predict_start_date)
+    predict_end_date   = pd.to_datetime(predict_end_date)
+
+    data_masking_selected = st.multiselect(
+        "Select Data Masking",
+        options=unique_masking,
+        default=unique_masking[:5]  # default first 5
+    )
+
+    run_button = st.button("Run Anomaly Detection")
+
+    # =========================================
+    # 3️⃣ Run anomaly
+    # =========================================
+    if run_button and data_masking_selected:
         train_start_date = predict_start_date - relativedelta(months=7)
         train_end_date   = predict_end_date   - relativedelta(months=2)
-
-        # prepare event list
-        event_pairs = []
-        for pair in data_masking_input.split(','):
-            if ':' in pair:
-                es, cc = pair.split(':', 1)
-                event_pairs.append((es.strip(), cc.strip()))
-            else:
-                event_pairs.append((pair.strip(), None))
 
         anomaly_results = pd.DataFrame(columns=[
             'predict_range','data_masking','account_num','event_type_id','costcode',
@@ -55,18 +60,16 @@ if uploaded_file and data_masking_input:
             'train_range','method'
         ])
 
-        for es, cc in event_pairs:
+        for es in data_masking_selected:
             df_es = df[df['data_masking'] == es]
-            if cc:
-                df_es = df_es[df_es['costcode'] == cc]
 
             if df_es.empty:
                 anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
-                    'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                    'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
                     'data_masking': [es],
                     'account_num': [None],
                     'event_type_id': [None],
-                    'costcode': [cc],
+                    'costcode': [None],
                     'predicted_min': [None],
                     'actual_volume': [0],
                     'predicted_max': [None],
@@ -74,31 +77,31 @@ if uploaded_file and data_masking_input:
                     'diff': [None],
                     'level': [None],
                     'remark': ["⚫ ไม่มีข้อมูลย้อนหลัง 6 เดือน"],
-                    'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                    'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': ["No Data"]
                 })], ignore_index=True)
                 continue
 
             account_num = df_es['account_num'].dropna().unique()[0] if 'account_num' in df_es.columns else None
             event_type_id = df_es['event_type_id'].dropna().unique()[0] if 'event_type_id' in df_es.columns else None
-            costcode = cc if cc else df_es['costcode'].dropna().unique()[0]
+            costcode = df_es['costcode'].dropna().unique()[0] if 'costcode' in df_es.columns else None
 
             # actual / prev
             actual_volume = df_es[
-                (df_es['start_date'] >= pd.to_datetime(predict_start_date)) &
-                (df_es['start_date'] <= pd.to_datetime(predict_end_date))
+                (df_es['start_date'] >= predict_start_date) &
+                (df_es['start_date'] <= predict_end_date)
             ]['volume_monthly'].sum()
 
             prev_volume = df_es[
-                (df_es['start_date'] >= pd.to_datetime(predict_start_date) - relativedelta(months=1)) &
-                (df_es['start_date'] <= pd.to_datetime(predict_end_date) - relativedelta(months=1))
+                (df_es['start_date'] >= predict_start_date - relativedelta(months=1)) &
+                (df_es['start_date'] <= predict_end_date - relativedelta(months=1))
             ]['volume_monthly'].sum()
             prev_volume = prev_volume if prev_volume != 0 else None
 
             # RULE 1: New Usage
             if (prev_volume is None or prev_volume == 0) and actual_volume > 0:
                 anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
-                    'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                    'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
                     'data_masking': [es],
                     'account_num': [account_num],
                     'event_type_id': [event_type_id],
@@ -110,7 +113,7 @@ if uploaded_file and data_masking_input:
                     'diff': ["100%"],
                     'level': ["High"],
                     'remark': ["❗ มี Usage ใหม่ (เดือนก่อน = 0)"],
-                    'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                    'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': ["Rule-based"]
                 })], ignore_index=True)
                 continue
@@ -125,7 +128,7 @@ if uploaded_file and data_masking_input:
             if df_train.shape[0] >= 6:
                 model = Prophet()
                 model.fit(df_train)
-                forecast = model.predict(pd.DataFrame({'ds': [pd.to_datetime(predict_start_date)]}))
+                forecast = model.predict(pd.DataFrame({'ds': [predict_start_date]}))
                 predicted_min = max(0, forecast['yhat_lower'].values[0])
                 predicted_max = max(predicted_min, forecast['yhat_upper'].values[0])
                 method = "Prophet"
@@ -142,7 +145,7 @@ if uploaded_file and data_masking_input:
             # RULE 2: Drop to Zero
             if prev_volume is not None and prev_volume > 0 and actual_volume == 0:
                 anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
-                    'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                    'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
                     'data_masking': [es],
                     'account_num': [account_num],
                     'event_type_id': [event_type_id],
@@ -154,7 +157,7 @@ if uploaded_file and data_masking_input:
                     'diff': ["-100%"],
                     'level': ["Low"],
                     'remark': ["❗ Usage หายไปจากเดือนก่อน"],
-                    'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                    'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': [method]
                 })], ignore_index=True)
                 continue
@@ -196,7 +199,7 @@ if uploaded_file and data_masking_input:
                     remark = ""
 
             anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
-                'predict_range': [f"{predict_start_date} ถึง {predict_end_date}"],
+                'predict_range': [f"{predict_start_date.date()} ถึง {predict_end_date.date()}"],
                 'data_masking': [es],
                 'account_num': [account_num],
                 'event_type_id': [event_type_id],
@@ -208,7 +211,7 @@ if uploaded_file and data_masking_input:
                 'diff': [f"{diff}%" if diff is not None else None],
                 'level': [level],
                 'remark': [remark],
-                'train_range': [f"{train_start_date} ถึง {train_end_date}"],
+                'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                 'method': [method]
             })], ignore_index=True)
 
@@ -223,6 +226,3 @@ if uploaded_file and data_masking_input:
         anomaly_results.to_excel(output, index=False)
         output.seek(0)
         st.download_button("📥 Download Result Excel", data=output, file_name=file_name)
-
-    except Exception as e:
-        st.error(f"Error: {e}")
