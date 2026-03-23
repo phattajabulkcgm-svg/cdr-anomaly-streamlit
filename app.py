@@ -1,5 +1,5 @@
 # =========================================
-# CDR Bulk Top10 Anomaly Detection | CGV (Pro UI + Dark/Light Mode + Sorted)
+# CDR Bulk Top10 Anomaly Detection | CGV (Pro UI + Dark Mode Toggle + Green Buttons)
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -10,28 +10,53 @@ from datetime import datetime
 import pytz
 
 # ==============================
-# UI theme selection
+# Page config
 # ==============================
-theme = st.selectbox("Select Theme", ["Light", "Dark"])
-if theme == "Dark":
+st.set_page_config(
+    page_title="CDR Bulk Top10 Anomaly Detection | CGV",
+    layout="wide"
+)
+
+# ==============================
+# Dark Mode toggle
+# ==============================
+dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
+
+if dark_mode:
     st.markdown("""
         <style>
         .stApp { background-color: #1f1f1f; color: white; }
-        .css-1d391kg { color: white; }  /* sidebar headers */
         .st-bf { color: white; }
+        .stButton>button { background-color: #4CAF50; color: white; }
+        .stTextInput>div>div>input { background-color: #eafbe7; color: black; }
+        .stTextArea>div>div>textarea { background-color: #eafbe7; color: black; }
+        .stDateInput>div>div>input { background-color: #eafbe7; color: black; }
+        .stFileUploader>div>div>input { background-color: #eafbe7; color: black; }
+        .css-1d391kg { color: white; }  /* sidebar headers */
         </style>
     """, unsafe_allow_html=True)
 else:
-    st.markdown("""<style>.stApp { background-color: #FFFFFF; color: black; }</style>""", unsafe_allow_html=True)
+    st.markdown("""
+        <style>
+        .stApp { background-color: #FFFFFF; color: black; }
+        .stButton>button { background-color: #4CAF50; color: white; }
+        .stTextInput>div>div>input { background-color: #e6ffe6; color: black; }
+        .stTextArea>div>div>textarea { background-color: #e6ffe6; color: black; }
+        .stDateInput>div>div>input { background-color: #e6ffe6; color: black; }
+        .stFileUploader>div>div>input { background-color: #e6ffe6; color: black; }
+        </style>
+    """, unsafe_allow_html=True)
 
-st.set_page_config(page_title="CDR Bulk Top10 Anomaly Detection | CGV", layout="wide")
+# ==============================
+# Title
+# ==============================
 st.markdown("<h1 style='text-align: center; color: #2F4F4F;'>📊 CDR Bulk Top10 Anomaly Detection | CGV</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
 # ==============================
 # Upload Excel
 # ==============================
-uploaded_file = st.file_uploader("Upload Excel file (XLSX)", type=["xlsx"])
+uploaded_file = st.file_uploader("📁 Upload Excel file (XLSX)", type=["xlsx"], label_visibility="visible")
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
@@ -39,18 +64,18 @@ if uploaded_file:
     df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # Inputs in card layout
+    # Input Parameters Card
     # ==============================
     with st.container():
-        st.markdown("### Input Parameters")
+        st.markdown("### 📝 Input Parameters")
         col1, col2 = st.columns(2)
         with col1:
-            predict_start_date = st.date_input("Predict Start Date")
+            predict_start_date = st.date_input("📅 Predict Start Date")
         with col2:
-            predict_end_date = st.date_input("Predict End Date")
+            predict_end_date = st.date_input("📅 Predict End Date")
 
         data_masking_input = st.text_area(
-            "Data Masking (comma-separated, e.g. A1, A100, ...)",
+            "💠 Data Masking (comma-separated, e.g. A1, A100, ...)",
             height=150
         )
 
