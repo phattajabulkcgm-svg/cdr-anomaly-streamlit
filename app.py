@@ -168,6 +168,9 @@ if uploaded_file is not None:
         anomaly_results['results_sort'] = anomaly_results['results'].apply(lambda x: 1 if x else 0)
         anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
 
+        # แปลง results เป็น TRUE / FALSE
+        anomaly_results['results'] = anomaly_results['results'].apply(lambda x: 'TRUE' if x else 'FALSE')
+
         st.subheader("Anomaly Results")
         st.dataframe(anomaly_results)
 
