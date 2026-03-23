@@ -20,7 +20,7 @@ st.set_page_config(
 )
 
 # ==============================
-# Dark Mode toggle (default Light)
+# Dark Mode toggle
 # ==============================
 dark_mode = st.sidebar.checkbox("🌙 Dark Mode", value=False)
 if dark_mode:
@@ -66,7 +66,7 @@ if uploaded_file:
         df['end_date'] = pd.to_datetime(df['end_date'], dayfirst=True, errors='coerce')
 
     # ==============================
-    # Step 2: Set Predict Range & Data Masking
+    # Step 2: Predict Range & Data Masking
     # ==============================
     st.markdown("### Step 2️⃣ Set Predict Range & Data Masking")
 
@@ -244,8 +244,6 @@ if uploaded_file:
         # Step 4: Filter anomalies + Show table
         # ==============================
         st.markdown("### Step 4️⃣ ✅ Anomaly Results Dashboard")
-
-        # แปลงเป็น Boolean
         anomaly_results['is_nomaly'] = anomaly_results['is_nomaly'].astype(bool)
 
         filter_option = st.radio("Filter anomalies", options=["All","TRUE","FALSE"])
