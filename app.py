@@ -11,13 +11,19 @@ import pytz
 # ---------------------------
 # Page Config
 # ---------------------------
-st.set_page_config(page_title="CDR Anomaly Detection", layout="wide")
-st.title("📊 CDR Anomaly Detection Dashboard")
+st.set_page_config(page_title="CDR SMS Bulk Detection Dashboard", layout="wide")
+st.title("📊 CDR SMS Bulk Detection Dashboard")
 
 # ==========================
 # STEP 1️⃣ Upload File & Select Predict Period
 # ==========================
 st.header("STEP 1: Upload File & Select Predict Period")
+st.info("""
+**Required columns in Excel:**  
+`data_masking`, `start_date`, `volume_monthly`, `account_num`, `event_type_id`  
+Make sure column names match exactly (case-insensitive)
+""")
+
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 col1, col2 = st.columns(2)
 with col1:
