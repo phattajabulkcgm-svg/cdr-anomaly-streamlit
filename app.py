@@ -1,6 +1,6 @@
 # =========================================
-# 📊 CDR Bulk Top10 Dashboard | CGV
-# Dark/Light Mode + Top10 table
+# 📊 CDR Bulk Dashboard | CGV (All Results)
+# Dark/Light Mode + All anomaly table
 # =========================================
 
 import streamlit as st
@@ -15,7 +15,7 @@ import pytz
 # Page config
 # ==============================
 st.set_page_config(
-    page_title="CDR Bulk Top10 Dashboard | CGV",
+    page_title="CDR Bulk Dashboard | CGV",
     layout="wide"
 )
 
@@ -46,8 +46,8 @@ else:
 # Title
 # ==============================
 st.markdown("""
-    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Top10 Dashboard | CGV</h1>
-    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk Top 10</p>
+    <h1 style='text-align:center; color:#4CAF50;'>📊 CDR Bulk Dashboard | CGV</h1>
+    <p style='text-align:center; color:gray;'>Monitor SMS / CDR anomalies in bulk</p>
 """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -241,22 +241,23 @@ if uploaded_file:
             progress.progress(i/total)
 
         # ==============================
-        # Step 4: Show Top10 table (no filter)
+        # Step 4: Show ALL results
         # ==============================
-        st.markdown("### Step 4️⃣ ✅ Top10 Anomaly Results")
-        anomaly_results['is_nomaly'] = anomaly_results['is_nomaly'].astype(bool)
+        st.markdown("### Step 4️⃣ ✅ All Anomaly Results")
+        # แปลง is_nomaly เป็น TRUE / FALSE
+        anomaly_results['is_nomaly'] = anomaly_results['is_nomaly'].apply(lambda x: "TRUE" if x else "FALSE")
 
         df_show = anomaly_results.copy()
         df_show['diff_val'] = df_show['diff'].str.rstrip('%').astype(float).abs()
-        df_top10 = df_show.sort_values('diff_val', ascending=False).head(10).drop(columns=['diff_val'])
+        df_all = df_show.sort_values('diff_val', ascending=False).drop(columns=['diff_val'])
 
-        st.dataframe(df_top10)
+        st.dataframe(df_all)
 
         # Download Excel
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
-        file_name = f"cdr_bulk_top10_dashboard_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        df_top10.to_excel(output, index=False)
+        file_name = f"cdr_bulk_anomaly_results_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        df_all.to_excel(output, index=False)
         output.seek(0)
-        st.download_button("📥 Download Top10 Excel", data=output, file_name=file_name)
+        st.download_button("📥 Download Excel (All Results)", data=output, file_name=file_name)
