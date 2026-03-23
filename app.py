@@ -1,6 +1,5 @@
 # =========================================
-# Streamlit CDR Anomaly Detection
-# User can input Data Masking manually
+# Streamlit CDR Bulk Top10 Anomaly Detection | CGV
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -10,22 +9,23 @@ from dateutil.relativedelta import relativedelta
 from datetime import datetime
 import pytz
 
-st.set_page_config(page_title="CDR Anomaly Detection", layout="wide")
-st.title("📊 CDR Anomaly Detection (Prophet + Rule-based)")
+st.set_page_config(page_title="CDR Bulk Top10 Anomaly Detection | CGV", layout="wide")
+st.markdown("<h1 style='text-align: center; color: #2F4F4F;'>📊 CDR Bulk Top10 Anomaly Detection | CGV</h1>", unsafe_allow_html=True)
+st.markdown("---")
 
 # =========================================
 # 1️⃣ Upload Excel
 # =========================================
-uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload Excel file (XLSX)", type=["xlsx"])
 
-# =========================================
-# 2️⃣ Inputs
-# =========================================
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df.columns = df.columns.str.strip().str.lower()
     df['start_date'] = pd.to_datetime(df['start_date'], dayfirst=True, errors='coerce')
 
+    # =========================================
+    # 2️⃣ Inputs
+    # =========================================
     col1, col2 = st.columns(2)
     with col1:
         predict_start_date = st.date_input("Predict Start Date")
@@ -36,21 +36,18 @@ if uploaded_file:
     predict_start_date = pd.to_datetime(predict_start_date)
     predict_end_date   = pd.to_datetime(predict_end_date)
 
-    # Text area for user to input data_masking manually
     data_masking_input = st.text_area(
-        "Data Masking (comma-separated, e.g. A1, A100, A101, ...)",
+        "Data Masking (comma-separated, e.g. A1, A100, ...)",
         height=150
     )
 
-    run_button = st.button("Run Anomaly Detection")
+    run_button = st.button("🚀 Run Anomaly Detection")
 
     # =========================================
     # 3️⃣ Run anomaly
     # =========================================
     if run_button and data_masking_input:
-        # split by comma and strip spaces
         data_masking_selected = [x.strip() for x in data_masking_input.split(",") if x.strip()]
-
         train_start_date = predict_start_date - relativedelta(months=7)
         train_end_date   = predict_end_date   - relativedelta(months=2)
 
@@ -61,7 +58,10 @@ if uploaded_file:
             'train_range','method'
         ])
 
-        for es in data_masking_selected:
+        progress = st.progress(0)
+        total = len(data_masking_selected)
+
+        for i, es in enumerate(data_masking_selected, 1):
             df_es = df[df['data_masking'] == es]
 
             if df_es.empty:
@@ -81,13 +81,13 @@ if uploaded_file:
                     'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': ["No Data"]
                 })], ignore_index=True)
+                progress.progress(i/total)
                 continue
 
             account_num = df_es['account_num'].dropna().unique()[0] if 'account_num' in df_es.columns else None
             event_type_id = df_es['event_type_id'].dropna().unique()[0] if 'event_type_id' in df_es.columns else None
             costcode = df_es['costcode'].dropna().unique()[0] if 'costcode' in df_es.columns else None
 
-            # actual / prev
             actual_volume = df_es[
                 (df_es['start_date'] >= predict_start_date) &
                 (df_es['start_date'] <= predict_end_date)
@@ -117,6 +117,7 @@ if uploaded_file:
                     'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': ["Rule-based"]
                 })], ignore_index=True)
+                progress.progress(i/total)
                 continue
 
             # train model
@@ -161,6 +162,7 @@ if uploaded_file:
                     'train_range': [f"{train_start_date.date()} ถึง {train_end_date.date()}"],
                     'method': [method]
                 })], ignore_index=True)
+                progress.progress(i/total)
                 continue
 
             # anomaly logic
@@ -216,14 +218,25 @@ if uploaded_file:
                 'method': [method]
             })], ignore_index=True)
 
-        # show table
-        st.dataframe(anomaly_results)
+            progress.progress(i/total)
+
+        st.markdown("### ✅ Anomaly Results")
+        # highlight remark
+        def highlight_remark(row):
+            if "❗" in str(row):
+                return 'color: red; font-weight:bold'
+            elif "⚠️" in str(row):
+                return 'color: orange; font-weight:bold'
+            else:
+                return ''
+
+        st.dataframe(anomaly_results.style.applymap(highlight_remark, subset=['remark']))
 
         # download
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
         output = BytesIO()
-        file_name = f"cdr_anomaly_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        file_name = f"cdr_bulk_top10_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
         anomaly_results.to_excel(output, index=False)
         output.seek(0)
         st.download_button("📥 Download Result Excel", data=output, file_name=file_name)
