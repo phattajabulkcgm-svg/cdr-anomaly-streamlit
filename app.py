@@ -1,5 +1,5 @@
 # =========================================
-# app.py - Streamlit Complete Version (data_masking only)
+# app.py - Streamlit Complete Version (CSV Export)
 # =========================================
 import streamlit as st
 import pandas as pd
@@ -28,6 +28,7 @@ Make sure column names match exactly (case-insensitive)
 """)
 
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+
 col1, col2 = st.columns(2)
 with col1:
     predict_start_date = st.date_input("Predict Start Date", datetime.today())
@@ -38,7 +39,7 @@ train_start_date = predict_start_date - relativedelta(months=7)
 train_end_date   = predict_end_date   - relativedelta(months=2)
 
 # ==========================
-# STEP 2️⃣ Enter data_masking & Run Anomaly Detection
+# STEP 2️⃣ Run Anomaly Detection
 # ==========================
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
@@ -55,6 +56,7 @@ if uploaded_file is not None:
 
     if st.button("▶ Run Anomaly Detection"):
         event_list = [x.strip() for x in data_masking_input.split(',') if x.strip()]
+
         anomaly_results = pd.DataFrame(columns=[
             'predict_range','data_masking','account_num','event_type_id',
             'predicted_min','actual_volume','predicted_max',
@@ -75,8 +77,8 @@ if uploaded_file is not None:
                     })], ignore_index=True)
                     continue
 
-                account_num = df_es['account_num'].dropna().unique()[0] if 'account_num' in df_es.columns and not df_es['account_num'].dropna().empty else None
-                event_type_id = df_es['event_type_id'].dropna().unique()[0] if 'event_type_id' in df_es.columns and not df_es['event_type_id'].dropna().empty else None
+                account_num = df_es['account_num'].dropna().unique()[0] if not df_es['account_num'].dropna().empty else None
+                event_type_id = df_es['event_type_id'].dropna().unique()[0] if not df_es['event_type_id'].dropna().empty else None
 
                 actual_volume = df_es[
                     (df_es['start_date'] >= pd.to_datetime(predict_start_date)) &
@@ -92,6 +94,7 @@ if uploaded_file is not None:
                     (df_es['start_date'] >= pd.to_datetime(train_start_date)) &
                     (df_es['start_date'] <= pd.to_datetime(train_end_date))
                 ].groupby('start_date')['volume_monthly'].sum().reset_index()
+
                 df_train.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
 
                 if df_train.shape[0] >= 6:
@@ -106,41 +109,45 @@ if uploaded_file is not None:
                     predicted_max = df_train['y'].max() if not df_train.empty else 0
                     method_val = "Median fallback"
 
-                # rules & results
-                if prev_volume==0 and actual_volume>0:
+                # rules
+                if prev_volume == 0 and actual_volume > 0:
                     results_val = False
                     diff_val = 100
                     remark_txt = "❗ มี Usage ใหม่ (เดือนก่อน = 0)"
-                elif actual_volume==0:
-                    if prev_volume==0:
-                        remark_txt="❗ Usage 0 ใน 2 เดือนล่าสุด"
-                    else:
-                        remark_txt="❗ Usage หายไปจากเดือนก่อน"
+
+                elif actual_volume == 0:
                     results_val = False
                     diff_val = -100
+                    remark_txt = "❗ Usage หายไป"
+
                 elif actual_volume < 200:
                     results_val = True
                     diff_val = 0
                     remark_txt = "ปกติ (CDR < 200)"
+
                 elif predicted_min <= actual_volume <= predicted_max:
                     results_val = True
                     diff_val = 0
                     remark_txt = "Diff แต่ยังอยู่ใน threshold"
+
                 else:
                     if actual_volume > predicted_max:
                         diff_val = round((actual_volume - predicted_max)/predicted_max*100,2)
                     else:
-                        diff_val = round((actual_volume - predicted_min)/predicted_min*100,2) if predicted_min>0 else 0
+                        diff_val = round((actual_volume - predicted_min)/predicted_min*100,2) if predicted_min > 0 else 0
+
                     abs_val = abs(diff_val)
+
                     if 1 <= actual_volume <= 1_000:
-                        results_val = False if abs_val>=80 else True
+                        results_val = False if abs_val >= 80 else True
                     elif 1_001 <= actual_volume <= 100_000:
-                        results_val = False if abs_val>=50 else True
+                        results_val = False if abs_val >= 50 else True
                     elif 100_001 <= actual_volume <= 1_000_000:
-                        results_val = False if abs_val>=20 else True
-                    elif actual_volume >= 1_000_001:
+                        results_val = False if abs_val >= 20 else True
+                    else:
                         results_val = False
-                    remark_txt = "❗ เพิ่มขึ้นผิดปกติ" if actual_volume>predicted_max else "❗ ลดลงผิดปกติ"
+
+                    remark_txt = "❗ เพิ่มขึ้นผิดปกติ" if actual_volume > predicted_max else "❗ ลดลงผิดปกติ"
 
                 anomaly_results = pd.concat([anomaly_results, pd.DataFrame({
                     'predict_range':[f"{predict_start_date} ถึง {predict_end_date}"],
@@ -157,43 +164,53 @@ if uploaded_file is not None:
                     'method':[method_val]
                 })], ignore_index=True)
 
-        # sort & TRUE/FALSE
+        # sort
         anomaly_results['results_sort'] = anomaly_results['results'].apply(lambda x: 1 if x else 0)
-        anomaly_results = anomaly_results.sort_values(by=['results_sort','remark'], ascending=[True,True]).drop(columns=['results_sort'])
+        anomaly_results = anomaly_results.sort_values(by=['results_sort','remark']).drop(columns=['results_sort'])
         anomaly_results['results'] = anomaly_results['results'].apply(lambda x: 'TRUE' if x else 'FALSE')
 
         # highlight
-        def highlight_results(val):
-            color = 'lightgreen' if val == 'TRUE' else 'lightcoral'
-            return f'background-color: {color}'
+        def highlight(val):
+            return 'background-color: lightgreen' if val == 'TRUE' else 'background-color: lightcoral'
 
-        st.subheader("STEP 3: Anomaly Results Table")
-        st.dataframe(anomaly_results.style.applymap(highlight_results, subset=['results']))
+        st.subheader("STEP 3: Anomaly Results")
+        st.dataframe(anomaly_results.style.applymap(highlight, subset=['results']))
 
-        # download
+        # ==========================
+        # ✅ CSV DOWNLOAD
+        # ==========================
         tz = pytz.timezone('Asia/Bangkok')
         now = datetime.now(tz)
-        file_name = f"cdr_anomaly_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
-        anomaly_results.to_excel(file_name,index=False)
-        st.download_button("💾 Download Excel", file_name, file_name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        file_name = f"cdr_anomaly_{now.strftime('%Y%m%d_%H%M%S')}.csv"
+
+        csv = anomaly_results.to_csv(index=False).encode('utf-8-sig')
+
+        st.download_button(
+            label="💾 Download CSV",
+            data=csv,
+            file_name=file_name,
+            mime="text/csv"
+        )
 
 # ==========================
-# STEP 4️⃣ Select Event to View Trend Graph
+# STEP 4️⃣ Trend Graph
 # ==========================
 if uploaded_file is not None:
-    st.header("STEP 4: Select Event to View Trend Graph")
+    st.header("STEP 4: Trend Graph")
+
     data_masking_list = df['data_masking'].dropna().unique().tolist()
-    selected_event = st.selectbox("Select data_masking to view trend", data_masking_list)
+    selected_event = st.selectbox("Select data_masking", data_masking_list)
+
     df_event = df[df['data_masking'] == selected_event].copy()
 
     if not df_event.empty:
-        st.subheader(f"📈 Trend for {selected_event}")
         df_trend = df_event.groupby('start_date')['volume_monthly'].sum().reset_index()
         df_trend.rename(columns={'start_date':'ds','volume_monthly':'y'}, inplace=True)
 
         if df_trend.shape[0] >= 2:
             model = Prophet()
             model.fit(df_trend)
+
             future = model.make_future_dataframe(periods=1, freq='M')
             forecast = model.predict(future)
 
@@ -204,6 +221,6 @@ if uploaded_file is not None:
                 'Upper': forecast.set_index('ds')['yhat_upper']
             }))
         else:
-            st.warning("ข้อมูลไม่เพียงพอสำหรับการสร้าง trend (ต้องมีอย่างน้อย 2 เดือน)")
+            st.warning("ข้อมูลไม่พอ (ต้อง >= 2 เดือน)")
     else:
-        st.warning("ไม่มีข้อมูลสำหรับ event ที่เลือก")
+        st.warning("ไม่มีข้อมูล")
